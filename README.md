@@ -1,7 +1,7 @@
 # JustTeams
 
 <p align="center">
-<img src="https://i.imgur.com/vsZRsRM.png" alt="JustTeams Logo" width="1000"/>
+<img src="https://i.imgur.com/1cLuIzJ.png" alt="JustTeams Logo" width="1000"/>
 </p>
 
 <p align="center">
