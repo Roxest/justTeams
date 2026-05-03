@@ -1,7 +1,7 @@
 package eu.kotori.justTeams.util;
 import eu.kotori.justTeams.JustTeams;
 import eu.kotori.justTeams.gui.IRefreshableGUI;
-import io.papermc.paper.event.player.AsyncChatEvent;
+import org.bukkit.event.player.AsyncPlayerChatEvent;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;

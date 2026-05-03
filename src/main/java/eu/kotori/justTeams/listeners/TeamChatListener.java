@@ -3,7 +3,7 @@ import eu.kotori.justTeams.JustTeams;
 import eu.kotori.justTeams.config.MessageManager;
 import eu.kotori.justTeams.team.Team;
 import eu.kotori.justTeams.team.TeamManager;
-import io.papermc.paper.event.player.AsyncChatEvent;
+import org.bukkit.event.player.AsyncPlayerChatEvent;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
@@ -69,7 +69,7 @@ public class TeamChatListener implements Listener {
     }
     
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onPlayerChat(AsyncChatEvent event) {
+    public void onPlayerChat(AsyncPlayerChatEvent event) {
         if (!JustTeams.getInstance().getConfigManager().getBoolean("features.team_chat", true)) {
             return;
         }
@@ -80,7 +80,7 @@ public class TeamChatListener implements Listener {
             return;
         }
         
-        String messageContent = PlainTextComponentSerializer.plainText().serialize(event.message());
+        String messageContent = event.getMessage();
         
         Team team = teamManager.getPlayerTeamCached(player.getUniqueId());
         if (team == null) {
@@ -110,7 +110,7 @@ public class TeamChatListener implements Listener {
         
         event.setCancelled(true);
         
-        event.viewers().clear();
+        event.getRecipients().clear();
         
         final String finalMessageContent;
         if (isCharacterBasedTeamChat) {
@@ -149,11 +149,15 @@ public class TeamChatListener implements Listener {
         Placeholder.unparsed("team_name", team.getName()),
         Placeholder.unparsed("message", finalMessageContent)
     );
+        // Convert the component to a legacy string
+        String legacyFormattedMessage = LegacyComponentSerializer.legacySection().serialize(formattedMessage);
+
         team.getMembers().stream()
                 .map(member -> member.getBukkitPlayer())
                 .filter(onlinePlayer -> onlinePlayer != null)
-                .forEach(onlinePlayer -> onlinePlayer.sendMessage(formattedMessage));
-
+                // Send the string, not the component!
+                .forEach(onlinePlayer -> onlinePlayer.sendMessage(legacyFormattedMessage));
+                
         Bukkit.getOnlinePlayers().stream()
                 .filter(spy -> chatSpyEnabled.contains(spy.getUniqueId()))
                 .filter(spy -> !team.isMember(spy.getUniqueId()))
