@@ -73,7 +73,8 @@ public class TeamMessageCommand implements CommandExecutor, TabCompleter {
         ? LegacyComponentSerializer.legacyAmpersand().deserialize(playerSuffix)
         : Component.empty();
 
-    Component formattedMessage = miniMessage.deserialize(format,
+    // 1. Build the Component as usual
+    Component formattedMessageComponent = miniMessage.deserialize(format,
         Placeholder.unparsed("player", player.getName()),
         Placeholder.component("prefix", prefixComponent),
         Placeholder.component("player_prefix", prefixComponent),
@@ -82,11 +83,15 @@ public class TeamMessageCommand implements CommandExecutor, TabCompleter {
         Placeholder.unparsed("team_name", team.getName()),
         Placeholder.unparsed("message", message)
     );
+    
+    // 2. Convert the Component into a standard Bukkit String!
+    String legacyStringMessage = LegacyComponentSerializer.legacySection().serialize(formattedMessageComponent);
         
-        team.getMembers().stream()
-                .map(member -> member.getBukkitPlayer())
-                .filter(onlinePlayer -> onlinePlayer != null)
-                .forEach(onlinePlayer -> onlinePlayer.sendMessage(formattedMessage));
+    // 3. Send the String, NOT the Component
+    team.getMembers().stream()
+            .map(member -> member.getBukkitPlayer())
+            .filter(onlinePlayer -> onlinePlayer != null)
+            .forEach(onlinePlayer -> onlinePlayer.sendMessage(legacyStringMessage));
         
         if (JustTeams.getInstance().getConfigManager().isCrossServerSyncEnabled()) {
             JustTeams.getInstance().getTaskRunner().runAsync(() -> {
