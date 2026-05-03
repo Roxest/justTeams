@@ -4,6 +4,7 @@ import eu.kotori.justTeams.team.Team;
 import eu.kotori.justTeams.util.GuiConfigManager;
 import eu.kotori.justTeams.util.ItemBuilder;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.configuration.ConfigurationSection;
@@ -24,7 +25,8 @@ public class LeaderboardViewGUI implements InventoryHolder {
     public LeaderboardViewGUI(JustTeams plugin, Player viewer, String title, Map<Integer, Team> topTeams, LeaderboardType type) {
         this.plugin = plugin;
         this.viewer = viewer;
-        this.inventory = Bukkit.createInventory(this, 54, Component.text(title));
+        this.inventory = Bukkit.createInventory(this, 54,
+                LegacyComponentSerializer.legacySection().serialize(Component.text(title)));
         initializeItems(topTeams, type);
     }
     private void initializeItems(Map<Integer, Team> topTeams, LeaderboardType type) {

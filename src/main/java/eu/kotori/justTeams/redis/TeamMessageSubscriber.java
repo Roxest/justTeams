@@ -70,12 +70,13 @@ public class TeamMessageSubscriber extends JedisPubSub {
                 .replace("<message>", messageText);
             
             Component component = mm.deserialize(formattedMessage);
+            String legacyMessage = net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.legacySection().serialize(component);
             
             plugin.getTaskRunner().run(() -> {
                 int delivered = 0;
                 for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
                     if (team.isMember(onlinePlayer.getUniqueId())) {
-                        onlinePlayer.sendMessage(component);
+                        onlinePlayer.sendMessage(legacyMessage);
                         delivered++;
                     }
                 }

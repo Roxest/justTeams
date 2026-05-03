@@ -3,6 +3,7 @@ package eu.kotori.justTeams.config;
 import eu.kotori.justTeams.JustTeams;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.InvalidConfigurationException;
@@ -68,16 +69,17 @@ public class MessageManager {
                         .warning("Message key not found: " + key + " - this may indicate a configuration issue");
             }
             Component message = miniMessage.deserialize(prefix + messageString, resolvers);
-            target.sendMessage(message);
+            target.sendMessage(LegacyComponentSerializer.legacySection().serialize(message));
         } catch (Exception e) {
             plugin.getLogger().severe("Error sending message for key " + key + ": " + e.getMessage());
-            target.sendMessage(Component.text(prefix + "<red>An error occurred while displaying the message.</red>"));
+            target.sendMessage(LegacyComponentSerializer.legacySection().serialize(
+                    Component.text(prefix + "<red>An error occurred while displaying the message.</red>")));
         }
     }
 
     public void sendRawMessage(CommandSender target, String message, TagResolver... resolvers) {
         Component component = miniMessage.deserialize(message, resolvers);
-        target.sendMessage(component);
+        target.sendMessage(LegacyComponentSerializer.legacySection().serialize(component));
     }
 
     public String getRawMessage(String key) {

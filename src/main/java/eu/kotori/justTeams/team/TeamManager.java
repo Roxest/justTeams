@@ -16,6 +16,7 @@ import eu.kotori.justTeams.util.CancellableTask;
 import eu.kotori.justTeams.util.EffectsUtil;
 import eu.kotori.justTeams.util.InventoryUtil;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -616,7 +617,7 @@ public class TeamManager {
                                 plugin.getMessageManager().getRawMessage("team_created_broadcast"),
                                 Placeholder.unparsed("player", owner.getName()),
                                 Placeholder.unparsed("team", team.getName()));
-                        Bukkit.broadcast(broadcastMessage);
+                        Bukkit.broadcastMessage(LegacyComponentSerializer.legacySection().serialize(broadcastMessage));
                     }
                 });
             });
@@ -734,7 +735,7 @@ public class TeamManager {
                             Component broadcastMessage = plugin.getMiniMessage().deserialize(
                                     messageManager.getRawMessage("team_disbanded_broadcast"),
                                     Placeholder.unparsed("team", teamName));
-                            Bukkit.broadcast(broadcastMessage);
+                            Bukkit.broadcastMessage(LegacyComponentSerializer.legacySection().serialize(broadcastMessage));
                         }
 
                         messageManager.sendMessage(owner, "team_disbanded");
@@ -1568,17 +1569,16 @@ public class TeamManager {
     public void teleportPlayer(Player player, Location location) {
         plugin.getDebugLogger().log("Executing final teleport for " + player.getName() + " to " + location);
         plugin.getTaskRunner().runAtLocation(location, () -> {
-            player.teleportAsync(location).thenAccept(success -> {
-                if (success) {
-                    messageManager.sendMessage(player, "teleport_success");
-                    EffectsUtil.playSound(player, EffectsUtil.SoundType.TELEPORT);
-                    EffectsUtil.spawnParticles(player.getLocation(),
-                            Particle.valueOf(configManager.getSuccessParticle()), 30);
-                } else {
-                    messageManager.sendMessage(player, "teleport_moved");
-                    EffectsUtil.playSound(player, EffectsUtil.SoundType.ERROR);
-                }
-            });
+            boolean success = player.teleport(location);
+            if (success) {
+                messageManager.sendMessage(player, "teleport_success");
+                EffectsUtil.playSound(player, EffectsUtil.SoundType.TELEPORT);
+                EffectsUtil.spawnParticles(player.getLocation(),
+                        Particle.valueOf(configManager.getSuccessParticle()), 30);
+            } else {
+                messageManager.sendMessage(player, "teleport_moved");
+                EffectsUtil.playSound(player, EffectsUtil.SoundType.ERROR);
+            }
         });
     }
 
@@ -1773,7 +1773,8 @@ public class TeamManager {
             }
             plugin.getTaskRunner().runOnEntity(player, () -> {
                 int rows = configManager.getEnderChestRows();
-                Inventory enderChest = Bukkit.createInventory(team, rows * 9, Component.text("ᴛᴇᴀᴍ ᴇɴᴅᴇʀ ᴄʜᴇsᴛ"));
+                Inventory enderChest = Bukkit.createInventory(team, rows * 9,
+                        LegacyComponentSerializer.legacySection().serialize(Component.text("ᴛᴇᴀᴍ ᴇɴᴅᴇʀ ᴄʜᴇsᴛ")));
                 if (data != null && !data.isEmpty()) {
                     try {
                         InventoryUtil.deserializeInventory(enderChest, data);
@@ -1811,7 +1812,8 @@ public class TeamManager {
             }
             plugin.getTaskRunner().runOnEntity(player, () -> {
                 int rows = configManager.getEnderChestRows();
-                Inventory enderChest = Bukkit.createInventory(team, rows * 9, Component.text("ᴛᴇᴀᴍ ᴇɴᴅᴇʀ ᴄʜᴇsᴛ"));
+                Inventory enderChest = Bukkit.createInventory(team, rows * 9,
+                        LegacyComponentSerializer.legacySection().serialize(Component.text("ᴛᴇᴀᴍ ᴇɴᴅᴇʀ ᴄʜᴇsᴛ")));
                 if (data != null && !data.isEmpty()) {
                     try {
                         InventoryUtil.deserializeInventory(enderChest, data);
@@ -3019,7 +3021,7 @@ public class TeamManager {
                 for (TeamPlayer member : finalTeam.getMembers()) {
                     Player onlinePlayer = member.getBukkitPlayer();
                     if (onlinePlayer != null && onlinePlayer.isOnline()) {
-                        onlinePlayer.sendMessage(formattedMessage);
+                        onlinePlayer.sendMessage(LegacyComponentSerializer.legacySection().serialize(formattedMessage));
                         recipientCount++;
                     }
                 }

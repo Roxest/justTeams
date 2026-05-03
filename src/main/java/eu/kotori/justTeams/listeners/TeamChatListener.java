@@ -166,7 +166,7 @@ public class TeamChatListener implements Listener {
                         "<dark_gray>[<red>SPY<dark_gray>] <gray>[<yellow>" + team.getName() + "<gray>] <white>" + 
                         player.getName() + "<dark_gray>: <white>" + finalMessageContent
                     );
-                    spy.sendMessage(spyMessage);
+                    spy.sendMessage(LegacyComponentSerializer.legacySection().serialize(spyMessage));
                 });
         
         if (JustTeams.getInstance().getConfigManager().isCrossServerSyncEnabled()) {

@@ -454,7 +454,7 @@ public class TeamCommand implements CommandExecutor, TabCompleter {
             }
 
             if (targetUuidOpt.isEmpty()) {
-                OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayerIfCached(targetName);
+                OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(targetName);
                 if (offlinePlayer != null && offlinePlayer.hasPlayedBefore()) {
                     UUID targetUuid = offlinePlayer.getUniqueId();
                     plugin.getStorageManager().getStorage().cachePlayerName(targetUuid, targetName);

@@ -4,6 +4,7 @@ import eu.kotori.justTeams.team.Team;
 import eu.kotori.justTeams.util.GuiConfigManager;
 import eu.kotori.justTeams.util.ItemBuilder;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
@@ -36,7 +37,8 @@ public class AdminTeamListGUI implements InventoryHolder {
             Placeholder.unparsed("page", String.valueOf(page + 1)),
             Placeholder.unparsed("total_pages", String.valueOf((int) Math.ceil(allTeams.size() / 36.0)))
         );
-        this.inventory = Bukkit.createInventory(this, size, titleComponent);
+        this.inventory = Bukkit.createInventory(this, size,
+                LegacyComponentSerializer.legacySection().serialize(titleComponent));
         initializeItems();
     }
     private void initializeItems() {

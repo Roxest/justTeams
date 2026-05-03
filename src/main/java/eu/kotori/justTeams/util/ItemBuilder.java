@@ -3,6 +3,7 @@ import eu.kotori.justTeams.JustTeams;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -39,7 +40,7 @@ public class ItemBuilder {
         if (meta != null) {
             Component component = miniMessage.deserialize(name)
                     .decoration(TextDecoration.ITALIC, false);
-            meta.displayName(component);
+            meta.setDisplayName(LegacyComponentSerializer.legacySection().serialize(component));
             itemStack.setItemMeta(meta);
         }
         return this;
@@ -50,10 +51,10 @@ public class ItemBuilder {
     public ItemBuilder withLore(List<String> loreLines) {
         ItemMeta meta = itemStack.getItemMeta();
         if (meta != null) {
-            List<Component> lore = loreLines.stream()
-                    .map(line -> miniMessage.deserialize(line).decoration(TextDecoration.ITALIC, false))
+            List<String> lore = loreLines.stream()
+                    .map(line -> LegacyComponentSerializer.legacySection().serialize(miniMessage.deserialize(line).decoration(TextDecoration.ITALIC, false)))
                     .collect(Collectors.toList());
-            meta.lore(lore);
+            meta.setLore(lore);
             itemStack.setItemMeta(meta);
         }
         return this;
@@ -65,16 +66,16 @@ public class ItemBuilder {
                 if (plugin != null && plugin.getBedrockSupport() != null && plugin.getBedrockSupport().isBedrockPlayer(playerUuid)) {
                     UUID javaUuid = plugin.getBedrockSupport().getJavaEditionUuid(playerUuid);
                     if (javaUuid != null && !javaUuid.equals(playerUuid)) {
-                        skullMeta.setPlayerProfile(Bukkit.createProfile(javaUuid));
+                        skullMeta.setOwningPlayer(Bukkit.getOfflinePlayer(javaUuid));
                     } else {
-                        skullMeta.setPlayerProfile(Bukkit.createProfile(playerUuid));
+                        skullMeta.setOwningPlayer(Bukkit.getOfflinePlayer(playerUuid));
                     }
                 } else {
-                    skullMeta.setPlayerProfile(Bukkit.createProfile(playerUuid));
+                    skullMeta.setOwningPlayer(Bukkit.getOfflinePlayer(playerUuid));
                 }
                 itemStack.setItemMeta(skullMeta);
             } catch (Exception e) {
-                skullMeta.setPlayerProfile(Bukkit.createProfile(playerUuid));
+                skullMeta.setOwningPlayer(Bukkit.getOfflinePlayer(playerUuid));
                 itemStack.setItemMeta(skullMeta);
             }
         }

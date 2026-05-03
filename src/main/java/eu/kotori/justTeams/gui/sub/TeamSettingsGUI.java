@@ -4,6 +4,7 @@ import eu.kotori.justTeams.gui.IRefreshableGUI;
 import eu.kotori.justTeams.team.Team;
 import eu.kotori.justTeams.util.GuiConfigManager;
 import eu.kotori.justTeams.util.ItemBuilder;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.configuration.ConfigurationSection;
@@ -31,7 +32,7 @@ public class TeamSettingsGUI implements IRefreshableGUI, InventoryHolder {
             title = guiConfig.getString("title", "ᴛᴇᴀᴍ sᴇᴛᴛɪɴɢs");
             size = guiConfig.getInt("size", 27);
         }
-        this.inventory = Bukkit.createInventory(this, size, plugin.getMiniMessage().deserialize(title));
+        this.inventory = Bukkit.createInventory(this, size, PlainTextComponentSerializer.plainText().serialize(plugin.getMiniMessage().deserialize(title)));
         initializeItems();
     }
     public void initializeItems() {

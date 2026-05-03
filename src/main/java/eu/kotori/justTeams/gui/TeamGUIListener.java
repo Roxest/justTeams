@@ -12,7 +12,7 @@ import eu.kotori.justTeams.team.TeamPlayer;
 import eu.kotori.justTeams.team.TeamRole;
 import eu.kotori.justTeams.util.EffectsUtil;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
@@ -154,19 +154,8 @@ public class TeamGUIListener implements Listener {
         }
         switch (action) {
             case "player-head" -> {
-                if (clickedItem.getItemMeta() instanceof SkullMeta skullMeta && skullMeta.getPlayerProfile() != null) {
-                    Object profileId = skullMeta.getPlayerProfile().getId();
-                    UUID targetUuid = null;
-                    if (profileId instanceof UUID) {
-                        targetUuid = (UUID) profileId;
-                    } else if (profileId instanceof String) {
-                        try {
-                            targetUuid = UUID.fromString((String) profileId);
-                        } catch (IllegalArgumentException e) {
-                            plugin.getDebugLogger().log("Invalid UUID format in player-head click from " + player.getName());
-                            return;
-                        }
-                    }
+                if (clickedItem.getItemMeta() instanceof SkullMeta skullMeta && skullMeta.getOwningPlayer() != null) {
+                    UUID targetUuid = skullMeta.getOwningPlayer().getUniqueId();
                     if (targetUuid != null) {
                         if (targetUuid.equals(player.getUniqueId())) {
                             plugin.getMessageManager().sendMessage(player, "cannot_edit_own_permissions");
@@ -681,9 +670,9 @@ public class TeamGUIListener implements Listener {
             case "previous-page" -> new AdminTeamListGUI(plugin, player, gui.getAllTeams(), gui.getPage() - 1).open();
             case "back-button" -> new AdminGUI(plugin, player).open();
             case "team-head" -> {
-                Component displayName = clickedItem.getItemMeta().displayName();
-                if (displayName == null) return;
-                String plainName = PlainTextComponentSerializer.plainText().serialize(displayName);
+                String displayName = clickedItem.getItemMeta().getDisplayName();
+                if (displayName == null || displayName.isEmpty()) return;
+                String plainName = PlainTextComponentSerializer.plainText().serialize(LegacyComponentSerializer.legacySection().deserialize(displayName));
                 plugin.getTaskRunner().runAsync(() -> {
                     Team targetTeam = teamManager.getTeamByName(plainName);
                     if (targetTeam != null) {

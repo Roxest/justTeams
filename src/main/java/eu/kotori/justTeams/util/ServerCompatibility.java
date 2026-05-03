@@ -15,7 +15,7 @@ public class ServerCompatibility {
     static {
         String name = SERVER_NAME.toLowerCase();
         IS_FOLIA = name.contains("folia");
-        IS_PAPER = name.contains("paper") || name.contains("purpur") || name.contains("airplane") || name.contains("pufferfish");
+        IS_PAPER = name.contains("paper") || name.contains("purpur") || name.contains("airplane") || name.contains("pufferfish") || name.contains("arclight") || name.contains("fabric");
         IS_SPIGOT = name.contains("spigot") || name.contains("craftbukkit");
         
         if (IS_FOLIA) {

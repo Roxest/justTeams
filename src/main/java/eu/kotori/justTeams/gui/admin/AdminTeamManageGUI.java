@@ -4,6 +4,7 @@ import eu.kotori.justTeams.team.Team;
 import eu.kotori.justTeams.team.TeamPlayer;
 import eu.kotori.justTeams.util.ItemBuilder;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.OfflinePlayer;
@@ -34,7 +35,7 @@ public class AdminTeamManageGUI implements InventoryHolder {
         this.targetTeam = targetTeam;
         this.memberPage = memberPage;
         this.inventory = Bukkit.createInventory(this, 54, 
-            plugin.getMiniMessage().deserialize("<gold><bold>ᴍᴀɴᴀɢᴇ</bold></gold> <dark_gray>» <white>" + targetTeam.getName()));
+            PlainTextComponentSerializer.plainText().serialize(plugin.getMiniMessage().deserialize("<gold><bold>ᴍᴀɴᴀɢᴇ</bold></gold> <dark_gray>» <white>" + targetTeam.getName())));
         initializeItems();
     }
     

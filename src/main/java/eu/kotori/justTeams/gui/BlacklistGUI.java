@@ -6,6 +6,7 @@ import eu.kotori.justTeams.team.Team;
 import eu.kotori.justTeams.util.GuiConfigManager;
 import eu.kotori.justTeams.util.ItemBuilder;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.OfflinePlayer;
@@ -35,7 +36,8 @@ public class BlacklistGUI implements InventoryHolder, IRefreshableGUI {
         ConfigurationSection guiConfig = guiManager.getGUI("blacklist-gui");
         String title = guiConfig != null ? guiConfig.getString("title", "ᴛᴇᴀᴍ ʙʟᴀᴄᴋʟɪsᴛ") : "ᴛᴇᴀᴍ ʙʟᴀᴄᴋʟɪsᴛ";
         int size = guiConfig != null ? guiConfig.getInt("size", 54) : 54;
-        this.inventory = Bukkit.createInventory(this, size, Component.text(title));
+        this.inventory = Bukkit.createInventory(this, size,
+                LegacyComponentSerializer.legacySection().serialize(Component.text(title)));
         initializeItems();
     }
 

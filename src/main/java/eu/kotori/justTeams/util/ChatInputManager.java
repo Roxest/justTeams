@@ -23,12 +23,16 @@ public class ChatInputManager implements Listener {
         pendingInput.put(player.getUniqueId(), new InputData(onInput, previousGui));
     }
     @EventHandler(priority = EventPriority.HIGHEST)
-    public void onChat(AsyncChatEvent event) {
+    public void onChat(AsyncPlayerChatEvent event) { // Changed to AsyncPlayerChatEvent
         Player player = event.getPlayer();
         InputData inputData = pendingInput.get(player.getUniqueId());
         if (inputData == null) return;
+        
         event.setCancelled(true);
-        String message = PlainTextComponentSerializer.plainText().serialize(event.message());
+        
+        // Spigot makes this easy: we just get the string directly!
+        String message = event.getMessage(); 
+        
         pendingInput.remove(player.getUniqueId());
         plugin.getTaskRunner().run(() -> {
             inputData.onInput().accept(message);

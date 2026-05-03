@@ -93,7 +93,8 @@ public final class JustTeams extends JavaPlugin {
         } else if (serverName.contains("Paper") || serverNameLower.contains("paper") ||
                 serverName.equals("Purpur") || serverName.equals("Airplane") ||
                 serverName.equals("Pufferfish") || serverNameLower.contains("universespigot") ||
-                serverNameLower.equals("plazma") || serverNameLower.equals("mirai")) {
+                serverNameLower.equals("plazma") || serverNameLower.contains("mirai") ||
+                serverNameLower.contains("arclight") || serverNameLower.contains("fabric")) {
             logger.info("Paper-based server detected. Using optimized scheduler.");
         } else if (serverName.equals("Spigot") || serverNameLower.contains("spigot")) {
             logger.info("Spigot-based server detected. Using standard Bukkit scheduler.");
