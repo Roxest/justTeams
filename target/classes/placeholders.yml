@@ -1,0 +1,313 @@
+placeholders-version: 5
+
+# JustTeams Placeholder Configuration
+# Placeholder configuration for JustTeams
+
+# =============================================================================
+# ADMIN CONFIGURATION
+# =============================================================================
+admin:
+  # Admin action icons
+  config_updated_icon: "⚙ "
+  database_connected_icon: "🔗 "
+  database_error_icon: "⚠ "
+  force_disbanded_icon: "💥 "
+  force_kicked_icon: "👢 "
+  plugin_reloaded_icon: "🔄 "
+  
+  # Admin GUI formatting
+  back_button: "<gray>← Back to Team List</gray>"
+  click_format: "<yellow>Click to manage this team</yellow>"
+  disband_warning: "<red><bold>⚠ DISBAND TEAM ⚠</bold></red>"
+  manage_title_format: "<gold>Manage: %team%</gold>"
+  members_format: "<gray>Members: <white>%count%</white></gray>"
+  owner_format: "<gray>Owner: <white>%owner%</white></gray>"
+  team_name_format: "<gold><bold>%team%</bold></gold>"
+
+# =============================================================================
+# COLORS CONFIGURATION
+# =============================================================================
+colors:
+  # Primary brand colors
+  accent: "#FFD700"
+  primary: "#4C9DDE"
+  secondary: "#4C96D2"
+  
+  # Status colors
+  error: "#FF4444"
+  info: "#00BFFF"
+  success: "#00FF00"
+  warning: "#FFA500"
+  
+  # Background colors
+  background_accent: "#3C3C3C"
+  background_primary: "#2C2C2C"
+  background_secondary: "#1A1A1A"
+  
+  # Text colors
+  text_disabled: "#666666"
+  text_muted: "#888888"
+  text_primary: "#FFFFFF"
+  text_secondary: "#CCCCCC"
+
+# =============================================================================
+# DATE & TIME CONFIGURATION
+# =============================================================================
+date_time:
+  join_date_format: "dd MMM yyyy"
+  timezone: "UTC"
+  unknown_date: "Unknown"
+
+# =============================================================================
+# ECONOMY CONFIGURATION
+# =============================================================================
+economy:
+  currency_symbol: "$"
+  deposit_label: "Deposit"
+  transfer_label: "Transfer"
+  withdraw_label: "Withdraw"
+
+# =============================================================================
+# ENDER CHEST CONFIGURATION
+# =============================================================================
+ender_chest:
+  available_icon: "✓ "
+  locked_icon: "🔒 "
+
+# =============================================================================
+# ERROR ICONS & MESSAGES
+# =============================================================================
+errors:
+  already_in_team_icon: "👥 "
+  command_not_found_icon: "❓ "
+  insufficient_rank_icon: "🚫 "
+  invalid_characters_icon: "⚠ "
+  invalid_input_icon: "❌ "
+  name_too_long_icon: "📏 "
+  name_too_short_icon: "📏 "
+  no_permission_icon: "🔒 "
+  player_not_in_team_icon: "👤 "
+  profanity_detected_icon: "🚨 "
+  team_name_taken_icon: "📝 "
+  team_not_found_icon: "🔍 "
+  team_tag_taken_icon: "🏷 "
+  unknown_error_icon: "❌ "
+
+# =============================================================================
+# GUI CONFIGURATION
+# =============================================================================
+gui:
+  # Border and fill items
+  border_item: "GRAY_STAINED_GLASS_PANE"
+  border_name: " "
+  
+  # Navigation icons
+  back_icon: "← "
+  close_icon: "✗ "
+  next_icon: "→ "
+  previous_icon: "← "
+  
+  # Status icons
+  error_icon: "✗ "
+  loading_icon: "⏳ "
+  no_data_icon: "○ "
+
+# =============================================================================
+# HOME TELEPORTATION CONFIGURATION
+# =============================================================================
+home:
+  cooldown_icon: "⏰ "
+  warmup_icon: "⏳ "
+
+# =============================================================================
+# JOIN REQUESTS CONFIGURATION
+# =============================================================================
+join_requests:
+  no_requests_icon: "○ "
+  requests_pending_icon: "📋 "
+
+# =============================================================================
+# NUMBERS & FORMATTING
+# =============================================================================
+numbers:
+  # Currency formatting
+  currency_format: "#,##0.00"
+  currency_symbol: "$"
+  
+  # Large number abbreviations
+  billion: "B"
+  million: "M"
+  thousand: "K"
+  
+  # Percentage formatting
+  percentage_format: "#.##%"
+
+# =============================================================================
+# PLATFORM INDICATORS CONFIGURATION
+# =============================================================================
+platform:
+  # Java Edition indicator
+  java:
+    enabled: true
+    color: "#00FF00"
+    icon: "[JE]"
+    format: " <#00FF00>[JE]</#00FF00>"
+  
+  # Bedrock Edition indicator
+  bedrock:
+    enabled: true
+    color: "#00D4FF"
+    icon: "[BE]"
+    format: " <#00D4FF>[BE]</#00D4FF>"
+  
+  # Show platform indicators in GUIs and chat
+  show_in_gui: true
+  show_in_chat: true
+  show_gamertags: true
+
+# =============================================================================
+# PLAYER ROLES CONFIGURATION
+# =============================================================================
+roles:
+  co_owner:
+    color: "#FF6B6B"
+    icon: "◆ "
+    priority: 2
+  
+  member:
+    color: "#FFFFFF"
+    icon: "● "
+    priority: 3
+  
+  owner:
+    color: "#FFD700"
+    icon: "★ "
+    priority: 1
+
+# =============================================================================
+# SORTING CONFIGURATION
+# =============================================================================
+sort:
+  alphabetical:
+    icon: ""
+    name: "Alphabetical"
+  
+  join_date:
+    icon: ""
+    name: "Join Date"
+  
+  online_status:
+    icon: ""
+    name: "Online Status"
+  
+  # Prefixes for selected/unselected items
+  selected_prefix: "<green>▪ <white>"
+  unselected_prefix: "<gray>▪ <white>"
+
+# =============================================================================
+# STATUS INDICATORS
+# =============================================================================
+status:
+  offline:
+    color: "#FF4444"
+    icon: "● "
+  
+  online:
+    color: "#00FF00"
+    icon: "● "
+  
+  pvp_disabled:
+    color: "#FF4444"
+    icon: "⚔ "
+  
+  pvp_enabled:
+    color: "#00FF00"
+    icon: "⚔ "
+
+# =============================================================================
+# SUCCESS ICONS & MESSAGES
+# =============================================================================
+success:
+  action_completed_icon: "✅ "
+  data_updated_icon: "💾 "
+  member_updated_icon: "👤 "
+  settings_saved_icon: "⚙ "
+  settings_updated_icon: "🔧 "
+  team_updated_icon: "🛡 "
+
+# =============================================================================
+# TEAM CHAT CONFIGURATION
+# =============================================================================
+team_chat:
+  character_prefix: "#"
+  character_required_space: false
+
+# =============================================================================
+# TEAM DISPLAY CONFIGURATION
+# =============================================================================
+team_display:
+  # Team display format for %justteams_display% placeholder
+  # Placeholders: %team_name%, %team_tag%, %team_color%, %team_icon%
+  format: "<team_color><team_icon><team_tag></team_color>"
+  
+  # Fallback when player is not in a team
+  no_team: "<gray>No Team</gray>"
+  
+  # Display options
+  show_icon: true
+  show_name: false
+  show_tag: true
+  
+  # Team color configuration
+  team_color: "#4C9DDE"
+  
+  # Team icon configuration
+  team_icon: "⚔ "
+  
+  # Team tag formatting
+  tag_color: "#FFD700"
+  tag_prefix: "["
+  tag_suffix: "]"
+
+# =============================================================================
+# TEAM MANAGEMENT CONFIGURATION
+# =============================================================================
+team_management:
+  # Member action icons
+  member_demoted_icon: "↓ "
+  member_joined_icon: "+ "
+  member_kicked_icon: "👢 "
+  member_left_icon: "- "
+  member_promoted_icon: "↑ "
+  
+  # Invitation icons
+  invitation_accepted_icon: "✓ "
+  invitation_declined_icon: "✗ "
+  invitation_sent_icon: "→ "
+
+# =============================================================================
+# WARPS CONFIGURATION
+# =============================================================================
+warps:
+  password_protected_label: "🔒 Password Protected"
+  private_label: "🔒 Private"
+  public_label: "🌐 Public"
+
+# =============================================================================
+# FEATURE COSTS & RESTRICTIONS CONFIGURATION
+# =============================================================================
+restrictions:
+  # Feature cost display
+  economy_cost_format: "<gold>$<cost></gold>"
+  items_cost_format: "<yellow><count>x <item></yellow>"
+  feature_disabled_icon: "🚫 "
+  feature_enabled_icon: "✅ "
+  
+  # World restriction display
+  disabled_worlds_format: "<red>Disabled in: <worlds></red>"
+  enabled_worlds_format: "<green>Available in: <worlds></green>"
+  
+  # Cost breakdown display
+  cost_breakdown_header: "<gold>Cost Breakdown:</gold>"
+  no_cost_label: "<green>Free</green>"
+  total_cost_format: "<gold>Total: <cost></gold>"

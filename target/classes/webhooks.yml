@@ -1,0 +1,448 @@
+# ===================================================================
+#                    JustTeams Webhook Configuration
+# ===================================================================
+#
+# Configure Discord webhooks to receive notifications about team events
+# Get your webhook URL from Discord: Server Settings → Integrations → Webhooks
+#
+# Color codes (decimal format for Discord embeds):
+#   Green: 5763719    Success events (create, join, promote)
+#   Red: 15548997      Destructive events (delete, kick, leave)
+#   Blue: 5814783      Info events (transfer, demote, rename)
+#   Gold: 16766720     Special events (levelup, achievements)
+#   Purple: 10181046   Bank/Economy events
+#
+# ===================================================================
+
+# Main webhook settings
+webhook:
+  # Enable or disable webhook notifications
+  enabled: false
+  
+  # Your Discord webhook URL
+  # Get this from: Discord Server → Settings → Integrations → Webhooks → New Webhook
+  url: ""
+  
+  # Webhook display name in Discord
+  username: "JustTeams Bot"
+  
+  # Webhook avatar URL (optional - leave empty for default)
+  avatar_url: "https://i.imgur.com/your-bot-avatar.png"
+  
+  # Server name to display in embeds (useful for multi-server setups)
+  server_name: "My Minecraft Server"
+  
+  # Enable rate limiting to prevent spam (recommended: true)
+  rate_limiting:
+    enabled: true
+    # Maximum webhooks per minute
+    max_per_minute: 20
+    # Delay between webhook sends (milliseconds)
+    min_delay_ms: 1000
+  
+  # Retry failed webhook sends
+  retry:
+    enabled: true
+    # Number of retry attempts
+    max_attempts: 3
+    # Delay between retries (milliseconds)
+    retry_delay_ms: 2000
+
+# ===================================================================
+#                          Event Configuration
+# ===================================================================
+#
+# Enable/disable specific events and customize their appearance
+#
+# Available placeholders for all events:
+#   {player} - Player name
+#   {team} - Team name
+#   {tag} - Team tag
+#   {server} - Server name (from server_name above)
+#   {time} - Current timestamp
+#
+# Event-specific placeholders are listed in each event section
+#
+# ===================================================================
+
+events:
+  # Team Creation
+  team_create:
+    enabled: true
+    color: 5763719  # Green
+    title: "🎉 New Team Created"
+    description: "**{player}** created a new team!"
+    show_fields: true
+    fields:
+      - name: "Team Name"
+        value: "{team}"
+        inline: true
+      - name: "Team Tag"
+        value: "`{tag}`"
+        inline: true
+      - name: "Owner"
+        value: "{player}"
+        inline: true
+    footer: "Team created on {server}"
+    timestamp: true
+  
+  # Team Deletion/Disband
+  team_delete:
+    enabled: true
+    color: 15548997  # Red
+    title: "💔 Team Disbanded"
+    description: "**{player}** disbanded their team"
+    show_fields: true
+    fields:
+      - name: "Team Name"
+        value: "{team}"
+        inline: true
+      - name: "Team Tag"
+        value: "`{tag}`"
+        inline: true
+      - name: "Former Owner"
+        value: "{player}"
+        inline: true
+      # Additional placeholder: {member_count}
+      - name: "Members"
+        value: "{member_count}"
+        inline: true
+    footer: "Team disbanded on {server}"
+    timestamp: true
+  
+  # Player Joins Team
+  player_join:
+    enabled: true
+    color: 5763719  # Green
+    title: "✅ Player Joined Team"
+    description: "**{player}** joined **{team}**"
+    show_fields: true
+    fields:
+      - name: "Player"
+        value: "{player}"
+        inline: true
+      - name: "Team"
+        value: "{team} `{tag}`"
+        inline: true
+      # Additional placeholder: {member_count}
+      - name: "Team Size"
+        value: "{member_count} members"
+        inline: true
+    footer: "Joined on {server}"
+    timestamp: true
+  
+  # Player Leaves Team
+  player_leave:
+    enabled: true
+    color: 15548997  # Red
+    title: "👋 Player Left Team"
+    description: "**{player}** left **{team}**"
+    show_fields: true
+    fields:
+      - name: "Player"
+        value: "{player}"
+        inline: true
+      - name: "Team"
+        value: "{team} `{tag}`"
+        inline: true
+      # Additional placeholder: {member_count}
+      - name: "Team Size"
+        value: "{member_count} members"
+        inline: true
+    footer: "Left on {server}"
+    timestamp: true
+  
+  # Player Kicked from Team
+  player_kick:
+    enabled: true
+    color: 15548997  # Red
+    title: "🚫 Player Kicked"
+    description: "**{kicked}** was kicked from **{team}**"
+    show_fields: true
+    fields:
+      # Additional placeholder: {kicker}, {kicked}
+      - name: "Kicked Player"
+        value: "{kicked}"
+        inline: true
+      - name: "Kicked By"
+        value: "{kicker}"
+        inline: true
+      - name: "Team"
+        value: "{team} `{tag}`"
+        inline: true
+    footer: "Kicked on {server}"
+    timestamp: true
+  
+  # Player Promoted
+  player_promote:
+    enabled: true
+    color: 16766720  # Gold
+    title: "⭐ Player Promoted"
+    description: "**{player}** was promoted in **{team}**"
+    show_fields: true
+    fields:
+      # Additional placeholders: {promoter}, {old_role}, {new_role}
+      - name: "Player"
+        value: "{player}"
+        inline: true
+      - name: "Promoted By"
+        value: "{promoter}"
+        inline: true
+      - name: "New Role"
+        value: "{new_role}"
+        inline: true
+      - name: "Previous Role"
+        value: "{old_role}"
+        inline: true
+      - name: "Team"
+        value: "{team} `{tag}`"
+        inline: true
+    footer: "Promoted on {server}"
+    timestamp: true
+  
+  # Player Demoted
+  player_demote:
+    enabled: true
+    color: 5814783  # Blue
+    title: "⬇️ Player Demoted"
+    description: "**{player}** was demoted in **{team}**"
+    show_fields: true
+    fields:
+      # Additional placeholders: {demoter}, {old_role}, {new_role}
+      - name: "Player"
+        value: "{player}"
+        inline: true
+      - name: "Demoted By"
+        value: "{demoter}"
+        inline: true
+      - name: "New Role"
+        value: "{new_role}"
+        inline: true
+      - name: "Previous Role"
+        value: "{old_role}"
+        inline: true
+      - name: "Team"
+        value: "{team} `{tag}`"
+        inline: true
+    footer: "Demoted on {server}"
+    timestamp: true
+  
+  # Ownership Transfer
+  ownership_transfer:
+    enabled: true
+    color: 16766720  # Gold
+    title: "👑 Ownership Transferred"
+    description: "**{team}** has a new owner!"
+    show_fields: true
+    fields:
+      # Additional placeholders: {old_owner}, {new_owner}
+      - name: "Previous Owner"
+        value: "{old_owner}"
+        inline: true
+      - name: "New Owner"
+        value: "{new_owner}"
+        inline: true
+      - name: "Team"
+        value: "{team} `{tag}`"
+        inline: true
+    footer: "Ownership transferred on {server}"
+    timestamp: true
+  
+  # Team Renamed
+  team_rename:
+    enabled: true
+    color: 5814783  # Blue
+    title: "✏️ Team Renamed"
+    description: "A team has been renamed"
+    show_fields: true
+    fields:
+      # Additional placeholders: {old_name}, {new_name}
+      - name: "Old Name"
+        value: "{old_name}"
+        inline: true
+      - name: "New Name"
+        value: "{new_name}"
+        inline: true
+      - name: "Changed By"
+        value: "{player}"
+        inline: true
+    footer: "Renamed on {server}"
+    timestamp: true
+  
+  # Team Tag Changed
+  team_tag_change:
+    enabled: true
+    color: 5814783  # Blue
+    title: "🏷️ Team Tag Changed"
+    description: "**{team}** changed their tag"
+    show_fields: true
+    fields:
+      # Additional placeholders: {old_tag}, {new_tag}
+      - name: "Old Tag"
+        value: "`{old_tag}`"
+        inline: true
+      - name: "New Tag"
+        value: "`{new_tag}`"
+        inline: true
+      - name: "Team"
+        value: "{team}"
+        inline: true
+      - name: "Changed By"
+        value: "{player}"
+        inline: true
+    footer: "Tag changed on {server}"
+    timestamp: true
+  
+  # Team PvP Toggled
+  team_pvp_toggle:
+    enabled: false  # Disabled by default (can be spammy)
+    color: 5814783  # Blue
+    title: "⚔️ Team PvP Status Changed"
+    description: "**{team}** changed their PvP status"
+    show_fields: true
+    fields:
+      # Additional placeholder: {pvp_status} (Enabled/Disabled)
+      - name: "Team"
+        value: "{team} `{tag}`"
+        inline: true
+      - name: "PvP Status"
+        value: "{pvp_status}"
+        inline: true
+      - name: "Changed By"
+        value: "{player}"
+        inline: true
+    footer: "PvP toggled on {server}"
+    timestamp: true
+  
+  # Team Public Status Toggled
+  team_public_toggle:
+    enabled: false  # Disabled by default
+    color: 5814783  # Blue
+    title: "🌐 Team Visibility Changed"
+    description: "**{team}** changed their visibility"
+    show_fields: true
+    fields:
+      # Additional placeholder: {public_status} (Public/Private)
+      - name: "Team"
+        value: "{team} `{tag}`"
+        inline: true
+      - name: "Visibility"
+        value: "{public_status}"
+        inline: true
+      - name: "Changed By"
+        value: "{player}"
+        inline: true
+    footer: "Visibility changed on {server}"
+    timestamp: true
+  
+  # Player Invited to Team
+  player_invite:
+    enabled: false  # Disabled by default (can be spammy)
+    color: 5763719  # Green
+    title: "📨 Player Invited"
+    description: "**{invited}** was invited to **{team}**"
+    show_fields: true
+    fields:
+      # Additional placeholder: {inviter}, {invited}
+      - name: "Invited Player"
+        value: "{invited}"
+        inline: true
+      - name: "Invited By"
+        value: "{inviter}"
+        inline: true
+      - name: "Team"
+        value: "{team} `{tag}`"
+        inline: true
+    footer: "Invited on {server}"
+    timestamp: true
+  
+  # Join Request Submitted
+  join_request:
+    enabled: false  # Disabled by default (can be spammy)
+    color: 5814783  # Blue
+    title: "📝 Join Request Submitted"
+    description: "**{player}** requested to join **{team}**"
+    show_fields: true
+    fields:
+      - name: "Player"
+        value: "{player}"
+        inline: true
+      - name: "Team"
+        value: "{team} `{tag}`"
+        inline: true
+    footer: "Request submitted on {server}"
+    timestamp: true
+  
+  # Join Request Accepted
+  join_request_accept:
+    enabled: false  # Disabled by default
+    color: 5763719  # Green
+    title: "✅ Join Request Accepted"
+    description: "**{accepter}** accepted **{player}**'s request"
+    show_fields: true
+    fields:
+      # Additional placeholder: {accepter}
+      - name: "Player"
+        value: "{player}"
+        inline: true
+      - name: "Accepted By"
+        value: "{accepter}"
+        inline: true
+      - name: "Team"
+        value: "{team} `{tag}`"
+        inline: true
+    footer: "Request accepted on {server}"
+    timestamp: true
+  
+  # Join Request Denied
+  join_request_deny:
+    enabled: false  # Disabled by default
+    color: 15548997  # Red
+    title: "❌ Join Request Denied"
+    description: "**{denier}** denied **{player}**'s request"
+    show_fields: true
+    fields:
+      # Additional placeholder: {denier}
+      - name: "Player"
+        value: "{player}"
+        inline: true
+      - name: "Denied By"
+        value: "{denier}"
+        inline: true
+      - name: "Team"
+        value: "{team} `{tag}`"
+        inline: true
+    footer: "Request denied on {server}"
+    timestamp: true
+
+# ===================================================================
+#                         Advanced Settings
+# ===================================================================
+
+advanced:
+  # Include server IP in footer (useful for multi-server networks)
+  show_server_ip: false
+  
+  # Include player UUIDs in embeds (for debugging)
+  show_uuids: false
+  
+  # Timeout for webhook connections (milliseconds)
+  connection_timeout: 5000
+  
+  # Read timeout for webhook responses (milliseconds)
+  read_timeout: 5000
+  
+  # Log webhook errors to console
+  log_errors: true
+  
+  # Log successful webhook sends (for debugging)
+  log_success: false
+  
+  # Use async webhook sending (recommended: true)
+  async_sending: true
+  
+  # Queue webhooks if rate limit is hit
+  queue_on_rate_limit: true
+  
+  # Maximum queue size (older messages will be dropped)
+  max_queue_size: 50

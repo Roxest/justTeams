@@ -1,0 +1,47 @@
+# ===================================================================
+#                        JustTeams Commands
+#                    Command Configuration Settings
+# ===================================================================
+#
+# This file defines the main commands and aliases used by the plugin.
+# You can customize command names to match your server's conventions.
+#
+# Command Structure:
+#   - primary-command: The main command players use (e.g., /team)
+#   - primary-message-command: The team messaging command (e.g., /teammsg)
+#   - Aliases are registered for common alternatives
+#
+# Customization Options:
+#   - Change command names to fit your server style
+#   - Commands are registered with Bukkit
+#   - Plugin.yml permissions are linked to these commands
+#   - Tab completion is generated
+#
+# Important Notes:
+#   - Command changes require a full server restart
+#   - Ensure commands don't conflict with other plugins
+#   - Keep commands short and memorable
+#   - Test thoroughly after making changes
+#
+# Default Aliases:
+#   - /team also works as: /guild, /clan, /party
+#   - /teammsg also works as: /guildmsg, /clanmsg, /partymsg
+#
+# ===================================================================
+
+# Command configuration version - DO NOT MODIFY
+commands-version: 6
+
+# ===================================================================
+#                        Main Command Settings
+# ===================================================================
+
+# Primary team management command
+# This is the main command players use to access all team features
+# Examples: /team create, /team invite, /team gui, etc.
+primary-command: "team"
+
+# Primary team messaging command  
+# This command allows players to send messages directly to their team
+# Usage: /teammsg <message> or /teammsg <player> <message>
+primary-message-command: "teammsg"
