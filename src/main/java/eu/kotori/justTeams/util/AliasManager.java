@@ -1,6 +1,5 @@
 package eu.kotori.justTeams.util;
 import eu.kotori.justTeams.JustTeams;
-import org.bukkit.command.CommandMap;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import java.io.File;
@@ -50,21 +49,12 @@ public class AliasManager {
                     }
                     aliasCommand.setDescription(target.getDescription());
                     aliasCommand.setUsage(target.getUsage());
-                    try {
-                        java.lang.reflect.Method getCommandMapMethod = plugin.getServer().getClass().getMethod("getCommandMap");
-                        Object commandMapObj = getCommandMapMethod.invoke(plugin.getServer());
-                        if (commandMapObj instanceof CommandMap commandMap) {
-                            commandMap.register(plugin.getName(), aliasCommand);
-                        } else if (commandMapObj != null) {
-                            java.lang.reflect.Method registerMethod = commandMapObj.getClass()
-                                    .getMethod("register", String.class, org.bukkit.command.PluginCommand.class);
-                            registerMethod.invoke(commandMapObj, plugin.getName(), aliasCommand);
-                        } else {
-                            throw new IllegalStateException("CommandMap not available");
-                        }
+                    Object commandMap = getCommandMap();
+                    if (commandMap instanceof org.bukkit.command.CommandMap) {
+                        ((org.bukkit.command.CommandMap) commandMap).register(plugin.getName(), aliasCommand);
                         plugin.getLogger().info("Registered command alias: /" + alias + " -> /" + targetCommand);
-                    } catch (Exception e) {
-                        plugin.getLogger().warning("Failed to register command alias with command map: " + e.getMessage());
+                    } else {
+                        plugin.getLogger().warning("Could not find server CommandMap to register alias: " + alias);
                     }
                 } catch (Exception e) {
                     plugin.getLogger().warning("Failed to create alias command: " + e.getMessage());
@@ -72,6 +62,16 @@ public class AliasManager {
             }
         } catch (Exception e) {
             plugin.getLogger().warning("Failed to register alias " + alias + " for " + targetCommand + ": " + e.getMessage());
+        }
+    }
+
+    private Object getCommandMap() {
+        try {
+            java.lang.reflect.Method method = plugin.getServer().getClass().getMethod("getCommandMap");
+            return method.invoke(plugin.getServer());
+        } catch (Exception e) {
+            plugin.getLogger().warning("Failed to access command map: " + e.getMessage());
+            return null;
         }
     }
 }

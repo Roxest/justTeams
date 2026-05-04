@@ -5,7 +5,6 @@ import eu.kotori.justTeams.util.GuiConfigManager;
 import eu.kotori.justTeams.util.ItemBuilder;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
-import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.configuration.ConfigurationSection;
@@ -30,7 +29,7 @@ public class ConfirmGUI implements InventoryHolder {
         GuiConfigManager guiManager = plugin.getGuiConfigManager();
         ConfigurationSection guiConfig = guiManager.getGUI("confirm-gui");
         int size = guiConfig.getInt("size", 27);
-        this.inventory = Bukkit.createInventory(this, size, PlainTextComponentSerializer.plainText().serialize(Component.text(title)));
+        this.inventory = Bukkit.createInventory(this, size, LegacyComponentSerializer.legacySection().serialize(Component.text(title)));
         initializeItems(guiConfig);
     }
 

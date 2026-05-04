@@ -3,8 +3,8 @@ import eu.kotori.justTeams.JustTeams;
 import eu.kotori.justTeams.config.MessageManager;
 import eu.kotori.justTeams.team.Team;
 import eu.kotori.justTeams.team.TeamManager;
-import org.bukkit.event.player.AsyncPlayerChatEvent;
 import net.kyori.adventure.text.Component;
+import org.bukkit.event.player.AsyncPlayerChatEvent;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
@@ -149,15 +149,12 @@ public class TeamChatListener implements Listener {
         Placeholder.unparsed("team_name", team.getName()),
         Placeholder.unparsed("message", finalMessageContent)
     );
-        // Convert the component to a legacy string
-        String legacyFormattedMessage = LegacyComponentSerializer.legacySection().serialize(formattedMessage);
-
+        String serializedMessage = LegacyComponentSerializer.legacySection().serialize(formattedMessage);
         team.getMembers().stream()
                 .map(member -> member.getBukkitPlayer())
                 .filter(onlinePlayer -> onlinePlayer != null)
-                // Send the string, not the component!
-                .forEach(onlinePlayer -> onlinePlayer.sendMessage(legacyFormattedMessage));
-                
+                .forEach(onlinePlayer -> onlinePlayer.sendMessage(serializedMessage));
+
         Bukkit.getOnlinePlayers().stream()
                 .filter(spy -> chatSpyEnabled.contains(spy.getUniqueId()))
                 .filter(spy -> !team.isMember(spy.getUniqueId()))

@@ -1,9 +1,9 @@
 package eu.kotori.justTeams.util;
 import eu.kotori.justTeams.JustTeams;
 import eu.kotori.justTeams.gui.IRefreshableGUI;
-import org.bukkit.event.player.AsyncPlayerChatEvent;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.entity.Player;
+import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -23,16 +23,12 @@ public class ChatInputManager implements Listener {
         pendingInput.put(player.getUniqueId(), new InputData(onInput, previousGui));
     }
     @EventHandler(priority = EventPriority.HIGHEST)
-    public void onChat(AsyncPlayerChatEvent event) { // Changed to AsyncPlayerChatEvent
+    public void onChat(AsyncPlayerChatEvent event) {
         Player player = event.getPlayer();
         InputData inputData = pendingInput.get(player.getUniqueId());
         if (inputData == null) return;
-        
         event.setCancelled(true);
-        
-        // Spigot makes this easy: we just get the string directly!
-        String message = event.getMessage(); 
-        
+        String message = event.getMessage();
         pendingInput.remove(player.getUniqueId());
         plugin.getTaskRunner().run(() -> {
             inputData.onInput().accept(message);

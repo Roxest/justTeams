@@ -25,8 +25,7 @@ public class LeaderboardViewGUI implements InventoryHolder {
     public LeaderboardViewGUI(JustTeams plugin, Player viewer, String title, Map<Integer, Team> topTeams, LeaderboardType type) {
         this.plugin = plugin;
         this.viewer = viewer;
-        this.inventory = Bukkit.createInventory(this, 54,
-                LegacyComponentSerializer.legacySection().serialize(Component.text(title)));
+        this.inventory = Bukkit.createInventory(this, 54, LegacyComponentSerializer.legacySection().serialize(Component.text(title)));
         initializeItems(topTeams, type);
     }
     private void initializeItems(Map<Integer, Team> topTeams, LeaderboardType type) {

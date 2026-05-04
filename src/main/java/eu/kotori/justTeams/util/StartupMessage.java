@@ -14,17 +14,6 @@ import java.util.List;
 
 public class StartupMessage {
 
-    // --- ADDED HELPER METHOD FOR ARCLIGHT COMPATIBILITY ---
-    private static void sendSafe(CommandSender sender, Component component) {
-        if (component.equals(Component.empty())) {
-            sender.sendMessage("");
-            return;
-        }
-        String legacyString = LegacyComponentSerializer.legacySection().serialize(component);
-        sender.sendMessage(legacyString);
-    }
-    // ------------------------------------------------------
-
     public static void send() {
         JustTeams plugin = JustTeams.getInstance();
         CommandSender console = Bukkit.getConsoleSender();
@@ -70,19 +59,18 @@ public class StartupMessage {
         String accentColor = "#7FCAE3";
         String lineSeparator = "<dark_gray><strikethrough>                                                                                ";
 
-        // Replaced console.sendMessage with sendSafe
-        sendSafe(console, mm.deserialize(lineSeparator));
-        sendSafe(console, Component.empty());
-        sendSafe(console, mm.deserialize("  <color:" + mainColor + ">█╗  ██╗   <white>JustTeams <gray>v<version>", placeholders));
-        sendSafe(console, mm.deserialize("  <color:" + mainColor + ">██║ ██╔╝   <gray>ʙʏ <white><author>", placeholders));
-        sendSafe(console, mm.deserialize("  <color:" + mainColor + ">█████╔╝    <white>sᴛᴀᴛᴜs: <color:#2ecc71>Active"));
-        sendSafe(console, mm.deserialize("  <color:" + accentColor + ">█╔═██╗"));
-        sendSafe(console, mm.deserialize("  <color:" + accentColor + ">█║  ██╗   <white>ʀᴇᴅɪs ᴄᴀᴄʜᴇ: " + redisStatus + " <gray>(optional)"));
-        sendSafe(console, mm.deserialize("  <color:" + accentColor + ">█║  ╚═╝   <white>ᴠᴀᴜʟᴛ: " + vaultStatus + " <gray>(economy)"));
-        sendSafe(console, Component.empty());
-        sendSafe(console, mm.deserialize("  <white>ᴘᴀᴘɪ: " + papiStatus + " <gray>| <white>ᴘᴠᴘᴍᴀɴᴀɢᴇʀ: " + pvpManagerStatus + " <gray>| <white>ᴇɴɢɪɴᴇ: <gray>" + engine));
-        sendSafe(console, Component.empty());
-        sendSafe(console, mm.deserialize(lineSeparator));
+        console.sendMessage(LegacyComponentSerializer.legacySection().serialize(mm.deserialize(lineSeparator)));
+        console.sendMessage("");
+        console.sendMessage(LegacyComponentSerializer.legacySection().serialize(mm.deserialize("  <color:" + mainColor + ">█╗  ██╗   <white>JustTeams <gray>v<version>", placeholders)));
+        console.sendMessage(LegacyComponentSerializer.legacySection().serialize(mm.deserialize("  <color:" + mainColor + ">██║ ██╔╝   <gray>ʙʏ <white><author>", placeholders)));
+        console.sendMessage(LegacyComponentSerializer.legacySection().serialize(mm.deserialize("  <color:" + mainColor + ">█████╔╝    <white>sᴛᴀᴛᴜs: <color:#2ecc71>Active")));
+        console.sendMessage(LegacyComponentSerializer.legacySection().serialize(mm.deserialize("  <color:" + accentColor + ">█╔═██╗")));
+        console.sendMessage(LegacyComponentSerializer.legacySection().serialize(mm.deserialize("  <color:" + accentColor + ">█║  ██╗   <white>ʀᴇᴅɪs ᴄᴀᴄʜᴇ: " + redisStatus + " <gray>(optional)")));
+        console.sendMessage(LegacyComponentSerializer.legacySection().serialize(mm.deserialize("  <color:" + accentColor + ">█║  ╚═╝   <white>ᴠᴀᴜʟᴛ: " + vaultStatus + " <gray>(economy)")));
+        console.sendMessage("");
+        console.sendMessage(LegacyComponentSerializer.legacySection().serialize(mm.deserialize("  <white>ᴘᴀᴘɪ: " + papiStatus + " <gray>| <white>ᴘᴠᴘᴍᴀɴᴀɢᴇʀ: " + pvpManagerStatus + " <gray>| <white>ᴇɴɢɪɴᴇ: <gray>" + engine)));
+        console.sendMessage("");
+        console.sendMessage(LegacyComponentSerializer.legacySection().serialize(mm.deserialize(lineSeparator)));
     }
 
     public static void sendUpdateNotification(JustTeams plugin) {
@@ -108,24 +96,24 @@ public class StartupMessage {
                 ""
         );
 
-        sendSafe(console, mm.deserialize(lineSeparator));
-        sendSafe(console, Component.empty());
+        console.sendMessage(LegacyComponentSerializer.legacySection().serialize(mm.deserialize(lineSeparator)));
+        console.sendMessage("");
         for (String line : updateBlock) {
-            sendSafe(console, mm.deserialize(line, placeholders));
+            console.sendMessage(LegacyComponentSerializer.legacySection().serialize(mm.deserialize(line, placeholders)));
         }
-        sendSafe(console, mm.deserialize(lineSeparator));
+        console.sendMessage(LegacyComponentSerializer.legacySection().serialize(mm.deserialize(lineSeparator)));
     }
 
     public static void sendUpdateNotification(Player player, JustTeams plugin) {
         MiniMessage mm = MiniMessage.miniMessage();
         String link = "https://builtbybit.com/resources/justteams.71401/";
         
-        sendSafe(player, mm.deserialize("<gradient:#4C9DDE:#7FCAE3>--------------------------------------------------</gradient>"));
-        sendSafe(player, Component.empty());
-        sendSafe(player, mm.deserialize("  <gradient:#4C9DDE:#7FCAE3>JustTeams</gradient> <gray>Update Available!</gray>"));
-        sendSafe(player, mm.deserialize("  <gray>A new version is available: <green>" + plugin.latestVersion + "</green>"));
-        sendSafe(player, mm.deserialize("  <click:open_url:'" + link + "'><hover:show_text:'<green>Click to visit download page!'><#7FCAE3><u>Click here to download the update.</u></hover></click>"));
-        sendSafe(player, Component.empty());
-        sendSafe(player, mm.deserialize("<gradient:#7FCAE3:#4C9DDE>--------------------------------------------------</gradient>"));
+        player.sendMessage(LegacyComponentSerializer.legacySection().serialize(mm.deserialize("<gradient:#4C9DDE:#7FCAE3>--------------------------------------------------</gradient>")));
+        player.sendMessage("");
+        player.sendMessage(LegacyComponentSerializer.legacySection().serialize(mm.deserialize("  <gradient:#4C9DDE:#7FCAE3>JustTeams</gradient> <gray>Update Available!</gray>")));
+        player.sendMessage(LegacyComponentSerializer.legacySection().serialize(mm.deserialize("  <gray>A new version is available: <green>" + plugin.latestVersion + "</green>")));
+        player.sendMessage(LegacyComponentSerializer.legacySection().serialize(mm.deserialize("  <click:open_url:'" + link + "'><hover:show_text:'<green>Click to visit download page!'><#7FCAE3><u>Click here to download the update.</u></hover></click>")));
+        player.sendMessage("");
+        player.sendMessage(LegacyComponentSerializer.legacySection().serialize(mm.deserialize("<gradient:#7FCAE3:#4C9DDE>--------------------------------------------------</gradient>")));
     }
 }

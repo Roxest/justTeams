@@ -36,8 +36,7 @@ public class BlacklistGUI implements InventoryHolder, IRefreshableGUI {
         ConfigurationSection guiConfig = guiManager.getGUI("blacklist-gui");
         String title = guiConfig != null ? guiConfig.getString("title", "ᴛᴇᴀᴍ ʙʟᴀᴄᴋʟɪsᴛ") : "ᴛᴇᴀᴍ ʙʟᴀᴄᴋʟɪsᴛ";
         int size = guiConfig != null ? guiConfig.getInt("size", 54) : 54;
-        this.inventory = Bukkit.createInventory(this, size,
-                LegacyComponentSerializer.legacySection().serialize(Component.text(title)));
+        this.inventory = Bukkit.createInventory(this, size, LegacyComponentSerializer.legacySection().serialize(Component.text(title)));
         initializeItems();
     }
 

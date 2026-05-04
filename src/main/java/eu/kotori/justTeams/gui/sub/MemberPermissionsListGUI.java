@@ -20,8 +20,7 @@ public class MemberPermissionsListGUI implements InventoryHolder {
     public MemberPermissionsListGUI(Player viewer, Team team) {
         this.viewer = viewer;
         this.team = team;
-        this.inventory = Bukkit.createInventory(this, 54,
-                LegacyComponentSerializer.legacySection().serialize(Component.text("Select Member to Edit")));
+        this.inventory = Bukkit.createInventory(this, 54, LegacyComponentSerializer.legacySection().serialize(Component.text("Select Member to Edit")));
         initializeItems();
     }
     private void initializeItems() {

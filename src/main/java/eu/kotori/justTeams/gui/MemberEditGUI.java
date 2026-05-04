@@ -6,7 +6,7 @@ import eu.kotori.justTeams.team.TeamPlayer;
 import eu.kotori.justTeams.team.TeamRole;
 import eu.kotori.justTeams.util.GuiConfigManager;
 import eu.kotori.justTeams.util.ItemBuilder;
-import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.OfflinePlayer;
@@ -42,7 +42,7 @@ public class MemberEditGUI implements IRefreshableGUI, InventoryHolder {
         String title = guiConfig.getString("title", "Edit: <player_name>")
                 .replace("<player_name>", target.getName() != null ? target.getName() : "Unknown");
         int size = guiConfig.getInt("size", 54);
-        this.inventory = Bukkit.createInventory(this, size, PlainTextComponentSerializer.plainText().serialize(plugin.getMiniMessage().deserialize(title)));
+        this.inventory = Bukkit.createInventory(this, size, LegacyComponentSerializer.legacySection().serialize(plugin.getMiniMessage().deserialize(title)));
         initializeItems();
     }
 

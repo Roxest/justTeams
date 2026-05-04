@@ -41,8 +41,7 @@ public class MemberPermissionsEditGUI implements InventoryHolder, IRefreshableGU
         String title = guiConfig.getString("title", "ᴘᴇʀᴍs: <target_name>").replace("<target_name>",
                 targetName != null ? targetName : "Unknown");
         int size = guiConfig.getInt("size", 27);
-        this.inventory = Bukkit.createInventory(this, size,
-                LegacyComponentSerializer.legacySection().serialize(Component.text(title)));
+        this.inventory = Bukkit.createInventory(this, size, LegacyComponentSerializer.legacySection().serialize(Component.text(title)));
         initializeItems();
     }
 

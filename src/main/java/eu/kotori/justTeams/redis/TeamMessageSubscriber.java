@@ -5,6 +5,7 @@ import eu.kotori.justTeams.team.Team;
 import eu.kotori.justTeams.util.EffectsUtil;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import redis.clients.jedis.JedisPubSub;
@@ -70,8 +71,8 @@ public class TeamMessageSubscriber extends JedisPubSub {
                 .replace("<message>", messageText);
             
             Component component = mm.deserialize(formattedMessage);
-            String legacyMessage = net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer.legacySection().serialize(component);
             
+            String legacyMessage = LegacyComponentSerializer.legacySection().serialize(component);
             plugin.getTaskRunner().run(() -> {
                 int delivered = 0;
                 for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {

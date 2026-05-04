@@ -1,9 +1,8 @@
 package eu.kotori.justTeams.gui.admin;
 import eu.kotori.justTeams.team.Team;
 import eu.kotori.justTeams.util.ItemBuilder;
-import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
-import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
@@ -18,7 +17,7 @@ public class AdminDisbandConfirmGUI implements InventoryHolder {
     public AdminDisbandConfirmGUI(Player viewer, Team targetTeam) {
         this.viewer = viewer;
         this.targetTeam = targetTeam;
-        this.inventory = Bukkit.createInventory(this, 27, PlainTextComponentSerializer.plainText().serialize(Component.text("Confirm Disband: " + targetTeam.getName())));
+        this.inventory = Bukkit.createInventory(this, 27, LegacyComponentSerializer.legacySection().serialize(Component.text("Confirm Disband: " + targetTeam.getName())));
         initializeItems();
     }
     private void initializeItems() {

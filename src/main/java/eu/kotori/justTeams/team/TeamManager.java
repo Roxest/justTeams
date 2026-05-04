@@ -1773,8 +1773,7 @@ public class TeamManager {
             }
             plugin.getTaskRunner().runOnEntity(player, () -> {
                 int rows = configManager.getEnderChestRows();
-                Inventory enderChest = Bukkit.createInventory(team, rows * 9,
-                        LegacyComponentSerializer.legacySection().serialize(Component.text("ᴛᴇᴀᴍ ᴇɴᴅᴇʀ ᴄʜᴇsᴛ")));
+                Inventory enderChest = Bukkit.createInventory(team, rows * 9, "ᴛᴇᴀᴍ ᴇɴᴅᴇʀ ᴄʜᴇsᴛ");
                 if (data != null && !data.isEmpty()) {
                     try {
                         InventoryUtil.deserializeInventory(enderChest, data);
@@ -1812,8 +1811,7 @@ public class TeamManager {
             }
             plugin.getTaskRunner().runOnEntity(player, () -> {
                 int rows = configManager.getEnderChestRows();
-                Inventory enderChest = Bukkit.createInventory(team, rows * 9,
-                        LegacyComponentSerializer.legacySection().serialize(Component.text("ᴛᴇᴀᴍ ᴇɴᴅᴇʀ ᴄʜᴇsᴛ")));
+                Inventory enderChest = Bukkit.createInventory(team, rows * 9, "ᴛᴇᴀᴍ ᴇɴᴅᴇʀ ᴄʜᴇsᴛ");
                 if (data != null && !data.isEmpty()) {
                     try {
                         InventoryUtil.deserializeInventory(enderChest, data);
@@ -3017,11 +3015,12 @@ public class TeamManager {
                         net.kyori.adventure.text.minimessage.tag.resolver.Placeholder.unparsed("message",
                                 msg.message()));
 
+                String legacyMessage = LegacyComponentSerializer.legacySection().serialize(formattedMessage);
                 int recipientCount = 0;
                 for (TeamPlayer member : finalTeam.getMembers()) {
                     Player onlinePlayer = member.getBukkitPlayer();
                     if (onlinePlayer != null && onlinePlayer.isOnline()) {
-                        onlinePlayer.sendMessage(LegacyComponentSerializer.legacySection().serialize(formattedMessage));
+                        onlinePlayer.sendMessage(legacyMessage);
                         recipientCount++;
                     }
                 }

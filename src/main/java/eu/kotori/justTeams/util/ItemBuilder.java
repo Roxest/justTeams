@@ -7,6 +7,7 @@ import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
@@ -52,7 +53,8 @@ public class ItemBuilder {
         ItemMeta meta = itemStack.getItemMeta();
         if (meta != null) {
             List<String> lore = loreLines.stream()
-                    .map(line -> LegacyComponentSerializer.legacySection().serialize(miniMessage.deserialize(line).decoration(TextDecoration.ITALIC, false)))
+                    .map(line -> miniMessage.deserialize(line).decoration(TextDecoration.ITALIC, false))
+                    .map(LegacyComponentSerializer.legacySection()::serialize)
                     .collect(Collectors.toList());
             meta.setLore(lore);
             itemStack.setItemMeta(meta);
@@ -63,19 +65,19 @@ public class ItemBuilder {
         if (itemStack.getType() == Material.PLAYER_HEAD && itemStack.getItemMeta() instanceof SkullMeta skullMeta) {
             try {
                 JustTeams plugin = JustTeams.getInstance();
+                UUID profileUuid = playerUuid;
                 if (plugin != null && plugin.getBedrockSupport() != null && plugin.getBedrockSupport().isBedrockPlayer(playerUuid)) {
                     UUID javaUuid = plugin.getBedrockSupport().getJavaEditionUuid(playerUuid);
                     if (javaUuid != null && !javaUuid.equals(playerUuid)) {
-                        skullMeta.setOwningPlayer(Bukkit.getOfflinePlayer(javaUuid));
-                    } else {
-                        skullMeta.setOwningPlayer(Bukkit.getOfflinePlayer(playerUuid));
+                        profileUuid = javaUuid;
                     }
-                } else {
-                    skullMeta.setOwningPlayer(Bukkit.getOfflinePlayer(playerUuid));
                 }
+                OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(profileUuid);
+                skullMeta.setOwningPlayer(offlinePlayer);
                 itemStack.setItemMeta(skullMeta);
             } catch (Exception e) {
-                skullMeta.setOwningPlayer(Bukkit.getOfflinePlayer(playerUuid));
+                OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(playerUuid);
+                skullMeta.setOwningPlayer(offlinePlayer);
                 itemStack.setItemMeta(skullMeta);
             }
         }

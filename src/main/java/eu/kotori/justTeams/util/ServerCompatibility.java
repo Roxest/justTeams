@@ -12,14 +12,19 @@ public class ServerCompatibility {
     private static final boolean IS_SPIGOT;
     private static final ServerType SERVER_TYPE;
     
+    private static final boolean IS_ARCLIGHT;
+    
     static {
         String name = SERVER_NAME.toLowerCase();
         IS_FOLIA = name.contains("folia");
-        IS_PAPER = name.contains("paper") || name.contains("purpur") || name.contains("airplane") || name.contains("pufferfish") || name.contains("arclight") || name.contains("fabric");
+        IS_PAPER = name.contains("paper") || name.contains("purpur") || name.contains("airplane") || name.contains("pufferfish") || name.contains("arclight");
+        IS_ARCLIGHT = name.contains("arclight");
         IS_SPIGOT = name.contains("spigot") || name.contains("craftbukkit");
         
         if (IS_FOLIA) {
             SERVER_TYPE = ServerType.FOLIA;
+        } else if (IS_ARCLIGHT) {
+            SERVER_TYPE = ServerType.PAPER; // Arclight supports Paper APIs
         } else if (IS_PAPER) {
             SERVER_TYPE = ServerType.PAPER;
         } else if (IS_SPIGOT) {
@@ -37,6 +42,9 @@ public class ServerCompatibility {
         return IS_PAPER;
     }
     
+    public static boolean isArclight() {
+        return IS_ARCLIGHT;
+    }
 
     public static boolean isSpigot() {
         return IS_SPIGOT;

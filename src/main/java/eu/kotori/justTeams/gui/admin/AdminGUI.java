@@ -5,7 +5,6 @@ import eu.kotori.justTeams.util.ItemBuilder;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
-import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.configuration.ConfigurationSection;
@@ -27,7 +26,7 @@ public class AdminGUI implements InventoryHolder {
         int size = guiConfig.getInt("size", 27);
         
         Component titleComponent = MiniMessage.miniMessage().deserialize(title);
-        this.inventory = Bukkit.createInventory(this, size, PlainTextComponentSerializer.plainText().serialize(titleComponent));
+        this.inventory = Bukkit.createInventory(this, size, LegacyComponentSerializer.legacySection().serialize(titleComponent));
         initializeItems(guiConfig);
     }
     private void initializeItems(ConfigurationSection guiConfig) {

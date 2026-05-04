@@ -12,10 +12,10 @@ import eu.kotori.justTeams.team.TeamPlayer;
 import eu.kotori.justTeams.team.TeamRole;
 import eu.kotori.justTeams.util.EffectsUtil;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.OfflinePlayer;
@@ -154,29 +154,32 @@ public class TeamGUIListener implements Listener {
         }
         switch (action) {
             case "player-head" -> {
-                if (clickedItem.getItemMeta() instanceof SkullMeta skullMeta && skullMeta.getOwningPlayer() != null) {
-                    UUID targetUuid = skullMeta.getOwningPlayer().getUniqueId();
-                    if (targetUuid != null) {
-                        if (targetUuid.equals(player.getUniqueId())) {
-                            plugin.getMessageManager().sendMessage(player, "cannot_edit_own_permissions");
-                            return;
-                        }
-                        TeamPlayer viewerMember = team.getMember(player.getUniqueId());
-                        TeamPlayer targetMember = team.getMember(targetUuid);
-                        if (viewerMember == null || targetMember == null) {
-                            plugin.getMessageManager().sendMessage(player, "player_not_in_team");
-                            return;
-                        }
-                        boolean canEdit = false;
-                        if (viewerMember.getRole() == TeamRole.OWNER) {
-                            canEdit = true;
-                        } else if (viewerMember.getRole() == TeamRole.CO_OWNER) {
-                            canEdit = targetMember.getRole() == TeamRole.MEMBER;
-                        }
-                        if (canEdit) {
-                            new MemberEditGUI(plugin, team, player, targetUuid).open();
-                        } else {
-                            plugin.getMessageManager().sendMessage(player, "no_permission");
+                if (clickedItem.getItemMeta() instanceof SkullMeta skullMeta) {
+                    OfflinePlayer owningPlayer = skullMeta.getOwningPlayer();
+                    if (owningPlayer != null) {
+                        UUID targetUuid = owningPlayer.getUniqueId();
+                        if (targetUuid != null) {
+                            if (targetUuid.equals(player.getUniqueId())) {
+                                plugin.getMessageManager().sendMessage(player, "cannot_edit_own_permissions");
+                                return;
+                            }
+                            TeamPlayer viewerMember = team.getMember(player.getUniqueId());
+                            TeamPlayer targetMember = team.getMember(targetUuid);
+                            if (viewerMember == null || targetMember == null) {
+                                plugin.getMessageManager().sendMessage(player, "player_not_in_team");
+                                return;
+                            }
+                            boolean canEdit = false;
+                            if (viewerMember.getRole() == TeamRole.OWNER) {
+                                canEdit = true;
+                            } else if (viewerMember.getRole() == TeamRole.CO_OWNER) {
+                                canEdit = targetMember.getRole() == TeamRole.MEMBER;
+                            }
+                            if (canEdit) {
+                                new MemberEditGUI(plugin, team, player, targetUuid).open();
+                            } else {
+                                plugin.getMessageManager().sendMessage(player, "no_permission");
+                            }
                         }
                     }
                 }
@@ -670,9 +673,11 @@ public class TeamGUIListener implements Listener {
             case "previous-page" -> new AdminTeamListGUI(plugin, player, gui.getAllTeams(), gui.getPage() - 1).open();
             case "back-button" -> new AdminGUI(plugin, player).open();
             case "team-head" -> {
-                String displayName = clickedItem.getItemMeta().getDisplayName();
-                if (displayName == null || displayName.isEmpty()) return;
-                String plainName = PlainTextComponentSerializer.plainText().serialize(LegacyComponentSerializer.legacySection().deserialize(displayName));
+                ItemMeta meta = clickedItem.getItemMeta();
+                if (meta == null || !meta.hasDisplayName()) return;
+                String displayName = meta.getDisplayName();
+                if (displayName == null) return;
+                String plainName = ChatColor.stripColor(displayName);
                 plugin.getTaskRunner().runAsync(() -> {
                     Team targetTeam = teamManager.getTeamByName(plainName);
                     if (targetTeam != null) {
