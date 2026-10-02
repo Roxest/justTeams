@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "justteams_chest_converter",
+  "version": "1.0.0",
+  "name": "JustTeams isolated chest converter",
+  "environment": "server",
+  "entrypoints": {"main": ["com.pixelclub.teams.converter.ChestConverterMod"]},
+  "depends": {"fabricloader": ">=0.16.0", "fabric-command-api-v2": "*", "minecraft": "1.21.1", "java": ">=21"}
+}
