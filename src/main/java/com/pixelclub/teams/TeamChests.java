@@ -29,7 +29,7 @@ public final class TeamChests {
     private final Set<UUID> frozenPlayers=new HashSet<>();
     private final Path wal;
     private static final class Lease {
-        int team;UUID player;long generation;String original;boolean open=true;String previousOp;ChestSessionContainer inventory;Menu menu;
+        int team;UUID player;long generation;String original;boolean open=true,admin;String previousOp;ChestSessionContainer inventory;Menu menu;
     }
     public TeamChests(TeamsCore core){this.core=core;wal=core.settings.folder().resolve("chest-intents.jsonl");}
     public boolean quarantined(UUID player,int team){return frozenPlayers.contains(player)||team>0&&frozenTeams.contains(team);}
@@ -46,6 +46,14 @@ public final class TeamChests {
     }
     public void open(ServerPlayer player)throws Exception {
         core.check(player,"enderchest");core.flag(player,"can_use_enderchest","enderchest");Team team=core.requireTeam(player);
+        openFor(player,team,false);
+    }
+    public void openAdministrative(ServerPlayer player,Team team)throws Exception{
+        adminAccess(player);openFor(player,team,true);
+    }
+    private void adminAccess(ServerPlayer player){if(!core.ready()||!TeamsCore.authenticated(player)||!Access.admin(player.createCommandSourceStack())||!Access.node(player,"justteams.admin.enderchest",false))throw new TeamsCore.Refusal("DENIED");}
+    private void openFor(ServerPlayer player,Team team,boolean admin)throws Exception{
+        if(quarantined(player.getUUID(),team.id()))throw new TeamsCore.Refusal("CHEST_RECOVERY_REQUIRED");
         if(!core.settings.bool("team_enderchest.enabled",true))throw new TeamsCore.Refusal("CHEST_DISABLED");
         if(core.store.isFrozen(team.id(),player.getUUID()))throw new TeamsCore.Refusal("CHEST_RECOVERY_REQUIRED");
         if(leases.containsKey(team.id()))throw new TeamsCore.Refusal("CHEST_IN_USE");
@@ -56,15 +64,15 @@ public final class TeamChests {
             int rows=core.settings.integer("team_upgrades.tiers."+team.tier()+".enderchest_rows",core.settings.integer("team_enderchest.rows",3));items=new ArrayList<>(Collections.nCopies(Math.max(1,Math.min(6,rows))*9,ItemStack.EMPTY));
         }
         List<ItemStack> inventory=items;String sourceHash=original;long sourceGeneration=generation;
-        core.ensureChanged(core.paid(player,"enderchest",true,()->{
+        java.util.concurrent.Callable<Boolean> action=()->{
             // The fee callback must not replace another lease acquired while external money was settling.
             if(leases.containsKey(team.id()))return false;
-            Lease lease=new Lease();lease.team=team.id();lease.player=player.getUUID();lease.generation=sourceGeneration;lease.original=sourceHash;
+            Lease lease=new Lease();lease.team=team.id();lease.player=player.getUUID();lease.generation=sourceGeneration;lease.original=sourceHash;lease.admin=admin;
             lease.inventory=new ChestSessionContainer(lease.team,lease.player,lease.generation,inventory,()->lease.open&&leases.get(lease.team)==lease);
             leases.put(lease.team,lease);
             player.openMenu(new SimpleMenuProvider((id,inv,p)->{lease.menu=new Menu(id,inv,lease);return lease.menu;},Texts.of(core.settings.message("team_enderchest_title","Team chest"))));
             return player.containerMenu==lease.menu;
-        }));
+        };core.ensureChanged(admin?action.call():core.paid(player,"enderchest",true,action));
     }
     private final class Menu extends ChestMenu {
         final Lease lease;
@@ -75,8 +83,8 @@ public final class TeamChests {
             if(type==ClickType.THROW||type==ClickType.PICKUP&&slot==-999&&!getCarried().isEmpty()){core.success(player,"&cCHEST_DROP_DISABLED_USE_INVENTORY");return;}
             if(type==ClickType.SWAP&&slot>=0&&slot<slots.size()&&(button>=0&&button<=8||button==40)){ItemStack hotbar=player.getInventory().getItem(button);Slot target=slots.get(slot);if(target.hasItem()&&!hotbar.isEmpty()&&hotbar.getCount()>target.getMaxStackSize(hotbar)){core.success(player,"&cCHEST_OVERSIZED_SWAP_USE_QUICK_MOVE");return;}}
             try{
-                core.check(player,"enderchest");core.flag(player,"can_use_enderchest","enderchest");
-                if(core.requireTeam(player).id()!=lease.team||core.store.isFrozen(lease.team,player.getUUID()))throw new TeamsCore.Refusal("STALE_CHEST");
+                if(lease.admin)adminAccess(player);else{core.check(player,"enderchest");core.flag(player,"can_use_enderchest","enderchest");if(core.requireTeam(player).id()!=lease.team)throw new TeamsCore.Refusal("STALE_CHEST");}
+                if(quarantined(player.getUUID(),lease.team)||core.store.isFrozen(lease.team,player.getUUID()))throw new TeamsCore.Refusal("STALE_CHEST");
                 transaction(player,lease,()->super.clicked(slot,button,type,actor));
             }catch(Exception e){core.refuse(player,e);if(!lease.open)player.closeContainer();}
         }
@@ -160,7 +168,7 @@ public final class TeamChests {
     public void close(ServerPlayer player){Lease lease=leases.values().stream().filter(value->value.player.equals(player.getUUID())).findFirst().orElse(null);if(lease!=null){finish(player,lease);if(player.containerMenu==lease.menu)player.closeContainer();}}
     public void revoke(UUID player){ServerPlayer online=core.server.getPlayerList().getPlayer(player);if(online!=null)close(online);}
     public void revokeTeam(int team){Lease lease=leases.get(team);if(lease!=null)revoke(lease.player);}
-    public void tick()throws Exception {for(Lease lease:new ArrayList<>(leases.values())){ServerPlayer player=core.server.getPlayerList().getPlayer(lease.player);if(player==null){lease.open=false;lease.inventory.revoke();leases.remove(lease.team,lease);continue;}Optional<Member> member=core.store.member(lease.player);if(member.isEmpty()||member.get().teamId()!=lease.team||!member.get().flag("can_use_enderchest")&&!Access.bypass(player,"enderchest"))close(player);}}
+    public void tick()throws Exception {for(Lease lease:new ArrayList<>(leases.values())){ServerPlayer player=core.server.getPlayerList().getPlayer(lease.player);if(player==null){lease.open=false;lease.inventory.revoke();leases.remove(lease.team,lease);continue;}if(lease.admin){try{adminAccess(player);}catch(TeamsCore.Refusal e){close(player);}continue;}Optional<Member> member=core.store.member(lease.player);if(member.isEmpty()||member.get().teamId()!=lease.team||!member.get().flag("can_use_enderchest")&&!Access.bypass(player,"enderchest"))close(player);}}
     private boolean savePlayerConfirmed(ServerPlayer player,ListTag expected)throws Exception {
         ((PlayerSaveAccess)core.server.getPlayerList()).pxcTeamsSave(player);
         Path root=core.server.getWorldPath(LevelResource.PLAYER_DATA_DIR).toAbsolutePath().normalize();Path target=root.resolve(player.getUUID()+".dat").normalize();if(!target.startsWith(root)||!Files.isRegularFile(target)||Files.isSymbolicLink(target))return false;
@@ -191,7 +199,7 @@ public final class TeamChests {
     }
     private void restoreQuarantine()throws Exception {
         if(!Files.exists(wal))return;Map<String,JsonObject> latest=new LinkedHashMap<>();
-        try(var reader=Files.newBufferedReader(wal,StandardCharsets.UTF_8)){String line;while((line=reader.readLine())!=null){if(line.isBlank())continue;JsonObject record=JsonParser.parseString(line).getAsJsonObject();latest.put(record.get("opid").getAsString(),record);}}
+        try(var reader=Files.newBufferedReader(wal,StandardCharsets.UTF_8)){String line;while((line=reader.readLine())!=null){if(line.isBlank())continue;JsonObject record=JsonParser.parseString(line).getAsJsonObject(),head=new JsonObject();for(String key:List.of("opid","player","team","phase")){if(!record.has(key)||record.get(key).isJsonNull())throw new TeamsCore.Refusal("CHEST_JOURNAL_INVALID");head.add(key,record.get(key));}String op=head.get("opid").getAsString();JsonObject previous=latest.get(op);if(previous!=null&&(!previous.get("player").equals(head.get("player"))||!previous.get("team").equals(head.get("team"))))throw new TeamsCore.Refusal("CHEST_JOURNAL_IDENTITY_CHANGED");latest.put(op,head);}}
         for(JsonObject record:latest.values()){String phase=record.get("phase").getAsString();if(!Set.of("DONE","CANCELLED","ESCROW").contains(phase)){UUID actor=UUID.fromString(record.get("player").getAsString());int team=record.get("team").getAsInt();frozenPlayers.add(actor);if(team>0)frozenTeams.add(team);}}
     }
     private static String sha(String input)throws Exception{return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(input.getBytes(StandardCharsets.UTF_8)));}

@@ -11,15 +11,18 @@ import java.util.*;
 
 public final class TeamCommands {
     private TeamCommands(){}
+    private static final Map<CommandDispatcher<?>,Map<String,CommandNode<?>>> owned=new WeakHashMap<>();
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher,Settings settings) {
+        Map<String,CommandNode<?>> previous=owned.remove(dispatcher);if(previous!=null)previous.forEach((name,node)->{if(dispatcher.getRoot().getChild(name)==node)remove(dispatcher.getRoot(),name);});owned.put(dispatcher,new HashMap<>());
         for(String root:List.of("team","t"))registerRoot(dispatcher,root,false);
         for(String root:List.of("teammsg","tm","tmsg"))registerRoot(dispatcher,root,true);
+        String primary=settings.command("primary-command","team"),message=settings.command("primary-message-command","teammsg");if(!primary.matches("[a-zA-Z0-9_-]+")||!message.matches("[a-zA-Z0-9_-]+")||primary.equalsIgnoreCase(message))throw new IllegalArgumentException("invalid primary team command names");if(!primary.equals("team"))registerRoot(dispatcher,primary,false);if(!message.equals("teammsg"))registerRoot(dispatcher,message,true);
         Map<String,List<String>> aliases=Map.of("guild",List.of("guild","g"),"clan",List.of("clan","c"),"party",List.of("party"),"guildmsg",List.of("guildmsg","gmsg"),"clanmsg",List.of("clanmsg","cmsg"),"partymsg",List.of("partymsg"));
-        aliases.forEach((key,names)->{if(settings.bool("command-aliases."+key+".enabled",true))for(String name:names)registerRoot(dispatcher,name,key.endsWith("msg"));});
+        aliases.forEach((key,names)->{if(settings.commandAlias(key))for(String name:names)registerRoot(dispatcher,name,key.endsWith("msg"));});
     }
     private static void registerRoot(CommandDispatcher<CommandSourceStack> dispatcher,String name,boolean message) {
         remove(dispatcher.getRoot(),name);
-        dispatcher.register(Commands.literal(name).executes(context->execute(context.getSource(),"",message)).then(Commands.argument("arguments",StringArgumentType.greedyString()).executes(context->execute(context.getSource(),StringArgumentType.getString(context,"arguments"),message))));
+        CommandNode<?> node=dispatcher.register(Commands.literal(name).executes(context->execute(context.getSource(),"",message)).then(Commands.argument("arguments",StringArgumentType.greedyString()).executes(context->execute(context.getSource(),StringArgumentType.getString(context,"arguments"),message))));owned.get(dispatcher).put(name,node);
     }
     @SuppressWarnings("unchecked") private static void remove(CommandNode<?> root,String name) {
         try{for(String field:List.of("children","literals","arguments")){Field f=CommandNode.class.getDeclaredField(field);f.setAccessible(true);((Map<String,?>)f.get(root)).remove(name);}}
@@ -28,14 +31,18 @@ public final class TeamCommands {
     private static int execute(CommandSourceStack source,String arguments,boolean message) {
         TeamsCore core=TeamsMod.core();String[] args=arguments.isBlank()?new String[0]:arguments.strip().split("\\s+");
         try {
+            if(source.getPlayer()!=null&&!TeamsCore.authenticated(source.getPlayer()))throw new TeamsCore.Refusal("LOGIN_REQUIRED");
             if(args.length>0&&(args[0].equalsIgnoreCase("admin")||args[0].equalsIgnoreCase("reload"))) {
                 if(!Access.admin(source))throw new TeamsCore.Refusal("DENIED");
                 if(core==null){source.sendSuccess(()->net.minecraft.network.chat.Component.literal("ready=false reason="+TeamsMod.problem()),false);return 1;}
                 if(args[0].equalsIgnoreCase("reload")){core.reload();source.sendSuccess(()->net.minecraft.network.chat.Component.literal("justTeams reloaded"),false);return 1;}
-                String action=args.length>1?args[1].toLowerCase(Locale.ROOT):"status";
+                String action=args.length>1?args[1].toLowerCase(Locale.ROOT):source.getPlayer()==null?"status":"gui";
                 if(action.equals("status")){String status=core.status();source.sendSuccess(()->net.minecraft.network.chat.Component.literal(status),false);return 1;}
                 if(action.equals("pending")){for(var pending:core.store.pendingOperations()){String row=pending.opid()+" team="+pending.teamId()+" kind="+pending.kind()+" phase="+pending.phase();source.sendSuccess(()->net.minecraft.network.chat.Component.literal(row),false);}return 1;}
-                throw new TeamsCore.Refusal("UNKNOWN_ADMIN_ACTION");
+                ServerPlayer admin=source.getPlayerOrException();core.requireAdmin(admin);
+                if(action.equals("gui")){core.menus.admin(admin,0);return 1;}
+                require(args,3);var target=core.store.teamNamed(args[2]).orElseThrow(()->new TeamsCore.Refusal("UNKNOWN_TEAM"));
+                switch(action){case "disband"->core.menus.confirm(admin,"Admin disband",()->core.adminDisband(admin,target.id()));case "home"->core.adminHome(admin,target.id());case "enderchest","ec"->core.chests.openAdministrative(admin,target);case "points"->{require(args,5);core.adminPoints(admin,target.id(),args[3].toLowerCase(Locale.ROOT),Long.parseLong(args[4]));}default->throw new TeamsCore.Refusal("UNKNOWN_ADMIN_ACTION");}return 1;
             }
             if(core==null)throw new TeamsCore.Refusal("NOT_READY");ServerPlayer player=source.getPlayerOrException();
             if(message){core.message(player,arguments);return 1;}
@@ -58,7 +65,7 @@ public final class TeamCommands {
                 case "tag","settag" -> {require(args,2);core.setting(player,"tag",args[1]);}
                 case "description","setdesc" -> {require(args,2);core.setting(player,"description",tail(args,1));}
                 case "rename" -> {require(args,2);core.rename(player,args[1]);}
-                case "color","setcolor" -> {require(args,2);if(!Access.node(player,"justteams.setcolor",true))throw new TeamsCore.Refusal("DENIED");if(!args[1].matches("#[0-9a-fA-F]{6}|[a-z_]+"))throw new TeamsCore.Refusal("INVALID_COLOR");core.setting(player,"color",args[1]);}
+                case "color","setcolor" -> {require(args,2);core.setColor(player,args[1],args.length>2?args[2]:null);}
                 case "public" -> {var team=core.requireTeam(player);core.setting(player,"is_public",!team.isPublic());}
                 case "glow" -> {var team=core.requireTeam(player);core.setting(player,"glow_enabled",!team.flag("glow_enabled"));}
                 case "pvp" -> {var team=core.requireTeam(player);core.setting(player,"pvp_enabled",!team.pvp());}
@@ -78,13 +85,16 @@ public final class TeamCommands {
                 case "upgrades","upgrade" -> {core.check(player,"upgrade");core.menus.upgrades(player);}
                 case "requests" -> {core.check(player,"requests");core.elevated(player);core.menus.requests(player);}
                 case "invites" -> {core.check(player,"invites");core.menus.invites(player);}
-                case "ally","allies" -> {if(args.length>=3)core.ally(player,args[1].toLowerCase(Locale.ROOT),args[2]);else{core.check(player,"ally");core.menus.allies(player);}}
+                case "ally","allies" -> {if(args.length>=2&&args[1].equalsIgnoreCase("toggle"))core.ally(player,"toggle",null);else if(args.length>=3)core.ally(player,args[1].toLowerCase(Locale.ROOT),args[2]);else{core.check(player,"ally");core.menus.allies(player);}}
                 case "blacklist" -> {if(args.length>=2)core.blacklist(player,args[1],tail(args,2),false);else{core.check(player,"blacklist");core.elevated(player);core.menus.blacklist(player);}}
                 case "unblacklist" -> {require(args,2);core.blacklist(player,args[1],null,true);}
                 case "setjoinfee" -> {require(args,2);core.setJoinFee(player,Double.parseDouble(args[1]));}
+                case "points" -> {core.check(player,"points");core.success(player,"Points: "+core.requireTeam(player).field("points"));}
+                case "platform" -> {core.check(player,"platform");core.success(player,core.platform(player.getUUID()));}
+                case "serveralias" -> {require(args,2);core.serverAlias(player,args[1].toLowerCase(Locale.ROOT),args.length>2?args[2]:null,args.length>3?tail(args,3):null);}
                 case "quests","quest" -> {core.check(player,"quests");core.menus.quests(player);}
-                case "info" -> {var team=args.length>1?core.store.teamNamed(args[1]).orElseThrow(()->new TeamsCore.Refusal("UNKNOWN_TEAM")):core.requireTeam(player);core.success(player,team.name()+" ["+team.tag()+"] members="+core.store.members(team.id()).size()+" bank="+Texts.money(team.balance())+" tier="+team.tier());}
-                case "help" -> core.success(player,"/team create|invite|accept|join|home|warp|bank|ec|chat|settings|top");
+                case "info" -> {core.check(player,"info");var team=args.length>1?core.store.teamNamed(args[1]).orElseThrow(()->new TeamsCore.Refusal("UNKNOWN_TEAM")):core.requireTeam(player);core.success(player,team.name()+" ["+team.tag()+"] members="+core.store.members(team.id()).size()+" bank="+Texts.money(team.balance())+" tier="+team.tier());}
+                case "help" -> {core.check(player,"help");core.success(player,"/team create|invite|accept|join|home|warp|bank|ec|chat|settings|top");}
                 default -> throw new TeamsCore.Refusal("UNKNOWN_TEAM_ACTION");
             }
             return 1;

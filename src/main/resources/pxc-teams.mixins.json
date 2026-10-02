@@ -3,6 +3,6 @@
   "package": "com.pixelclub.teams.mixin",
   "compatibilityLevel": "JAVA_21",
   "plugin": "com.pixelclub.teams.TeamsMixinPlugin",
-  "mixins": ["TeamChatMixin", "TeamDamageMixin", "PlayerSaveAccess", "EconomySaveFenceMixin", "ConfigurateSaveReceiptMixin"],
+  "mixins": ["TeamChatMixin", "TeamDamageMixin", "PlayerSaveAccess", "EntityFlagsAccess", "TeamGlowMetadataMixin", "EconomySaveFenceMixin", "ConfigurateSaveReceiptMixin"],
   "injectors": {"defaultRequire": 1}
 }

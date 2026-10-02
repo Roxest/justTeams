@@ -43,7 +43,7 @@ import java.util.Set;
 public final class ChestConverterMod implements ModInitializer {
     private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().serializeNulls().create();
     private static final Set<String> FORWARD_FIELDS = Set.of("team_id", "blob", "source_sha256");
-    private static final Set<String> REVERSE_FIELDS = Set.of("team_id", "inventory_json", "original_sha256");
+    private static final Set<String> REVERSE_FIELDS = Set.of("team_id", "inventory_json", "original_sha256", "generation");
 
     @Override
     public void onInitialize() {

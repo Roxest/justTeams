@@ -11,11 +11,11 @@ import java.util.*;
 /** Reads the donor's YAML without moving secrets into logs or generating a different economy. */
 public final class Settings {
     private final Path folder;
-    private Map<String,Object> config = Map.of(), messages = Map.of(), gui = Map.of(), quests = Map.of(), placeholders=Map.of();
+    private Map<String,Object> config = Map.of(), messages = Map.of(), gui = Map.of(), quests = Map.of(), placeholders=Map.of(),commands=Map.of();
     public Settings(Path folder) { this.folder = folder; }
     public synchronized void load() throws IOException {
         Files.createDirectories(folder);
-        for (String name : List.of("config.yml", "messages.yml", "gui.yml", "quests.yml", "placeholders.yml")) {
+        for (String name : List.of("config.yml", "messages.yml", "gui.yml", "quests.yml", "placeholders.yml", "commands.yml")) {
             Path target = folder.resolve(name);
             if (!Files.exists(target)) {
                 try (InputStream in = Settings.class.getClassLoader().getResourceAsStream(name)) {
@@ -29,6 +29,7 @@ public final class Settings {
         gui = read(folder.resolve("gui.yml"));
         quests = read(folder.resolve("quests.yml"));
         placeholders = read(folder.resolve("placeholders.yml"));
+        commands = read(folder.resolve("commands.yml"));
         if (!Double.isFinite(number("team_bank.max_balance", -1)) || number("team_bank.max_balance", -1) <= 0)
             throw new IOException("team_bank.max_balance must be explicitly positive");
     }
@@ -64,6 +65,8 @@ public final class Settings {
     public String message(String key,String fallback) { Object v=lookup(messages,key); return v==null?fallback:v.toString(); }
     public Map<String,Object> gui() { return gui; }
     public Map<String,Object> quests() { return quests; }
+    public String command(String key,String fallback){Object value=lookup(commands,key);return value==null?fallback:value.toString();}
+    public boolean commandAlias(String alias){return command("command-aliases."+alias+".enabled",alias.startsWith("party")?"false":"true").equalsIgnoreCase("true");}
     public String placeholder(String key,String fallback){Object value=lookup(placeholders,key);return value==null?fallback:value.toString();}
     public Path folder() { return folder; }
     private static Object lookup(Map<String,Object> root,String key) {

@@ -16,6 +16,8 @@ import java.util.Locale;
 /** Legacy donor colours without enabling bold on Thai labels. */
 public final class Texts {
     private Texts(){}
+    public static String plain(String text){return net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer.plainText().serialize(net.kyori.adventure.text.minimessage.MiniMessage.miniMessage().deserialize(legacyToMini(text)));}
+    public static String tagMarkup(String text){var tags=TagResolver.builder().resolver(net.kyori.adventure.text.minimessage.tag.standard.StandardTags.color()).resolver(net.kyori.adventure.text.minimessage.tag.standard.StandardTags.gradient()).resolver(net.kyori.adventure.text.minimessage.tag.standard.StandardTags.rainbow()).resolver(net.kyori.adventure.text.minimessage.tag.standard.StandardTags.reset()).build();var mini=MiniMessage.builder().tags(tags).build();return mini.serialize(mini.deserialize(legacyToMini(text.replace("<bold>","").replace("</bold>","").replace("<b>","").replace("</b>",""))));}
     public static Component template(String format,Map<String,String> plain,Map<String,String> trusted) {
         var tags=TagResolver.builder();plain.forEach((key,value)->tags.resolver(Placeholder.unparsed(key,value)));trusted.forEach((key,value)->tags.resolver(Placeholder.component(key,MiniMessage.miniMessage().deserialize(legacyToMini(value)))));
         String source=legacyToMini(format.replace("<bold>","").replace("</bold>","").replace("<b>","").replace("</b>",""));
@@ -59,6 +61,7 @@ public final class Texts {
         StringBuilder result=new StringBuilder();for(int i=0;i<value.length();i++){
             char marker=value.charAt(i);if((marker=='&'||marker=='§')&&i+1<value.length()){
                 char code=Character.toLowerCase(value.charAt(i+1));
+                if(code=='x'&&i+13<value.length()){StringBuilder hex=new StringBuilder();boolean valid=true;for(int j=0;j<6;j++){int at=i+2+j*2;if((value.charAt(at)!='&'&&value.charAt(at)!='§')||Character.digit(value.charAt(at+1),16)<0){valid=false;break;}hex.append(value.charAt(at+1));}if(valid){result.append("<reset><#").append(hex).append('>');i+=13;continue;}}
                 if(code=='#'&&i+7<value.length()&&value.substring(i+2,i+8).matches("[0-9a-fA-F]{6}")){result.append("<reset><#").append(value,i+2,i+8).append('>');i+=7;continue;}
                 ChatFormatting format=ChatFormatting.getByCode(code);if(format!=null){i++;if(format.isColor())result.append("<reset><").append(format.getName()).append('>');else if(format==ChatFormatting.RESET)result.append("<reset>");else if(format!=ChatFormatting.BOLD&&format!=ChatFormatting.OBFUSCATED)result.append('<').append(format.getName()).append('>');continue;}
             }result.append(marker);

@@ -664,6 +664,10 @@ public final class TeamStore {
         checkGeneric(suffix, values);
         return transaction(connection -> { lockRowTeams(connection, suffix, values); return insert(connection, suffix, values) == 1; });
     }
+    public synchronized boolean setMemberSort(int teamId,UUID actor,String sort)throws SQLException{
+        if(!Set.of("JOIN_DATE","ALPHABETICAL","ONLINE_STATUS").contains(sort))throw new IllegalArgumentException("Invalid member sort");
+        return transaction(connection->{if(team(connection,teamId,true).isEmpty()||member(connection,actor,true).filter(m->m.teamId()==teamId).isEmpty())return false;var existing=first(connection,"SELECT data_key FROM "+table("team_custom_data")+" WHERE team_id=? AND data_key=? FOR UPDATE",teamId,"member_sort_type");if(existing.isEmpty())return insert(connection,"team_custom_data",Map.of("team_id",teamId,"data_key","member_sort_type","data_value",sort))==1;return execute(connection,"UPDATE "+table("team_custom_data")+" SET data_value=?,updated_at=CURRENT_TIMESTAMP WHERE team_id=? AND data_key=?",sort,teamId,"member_sort_type")==1;});
+    }
     public synchronized int updateRows(String suffix, Map<String, Object> where, Map<String, Object> values) throws SQLException {
         checkGeneric(suffix, values); checkWhere(suffix, where);
         return transaction(connection -> { lockRowTeams(connection, suffix, where); lockRowTeams(connection, suffix, values); return update(connection, suffix, where, values); });
