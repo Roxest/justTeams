@@ -149,9 +149,9 @@ public final class TeamChests {
         finally{lease.open=false;lease.inventory.revoke();leases.remove(lease.team,lease);}
     }
     public void claim(ServerPlayer player)throws Exception {
-        core.check(player,"enderchest");
+        core.check(player,"claim");
         for(Operation operation:core.store.pendingOperations()){
-            if(!Objects.equals(operation.player(),player.getUUID())||!operation.phase().equals("ESCROW"))continue;
+            if(!operation.kind().equals("CHEST")||!Objects.equals(operation.player(),player.getUUID())||!operation.phase().equals("ESCROW"))continue;
             JsonObject payload=JsonParser.parseString(operation.payload()).getAsJsonObject();ItemStack item=NativeChestCodec.decode(payload.get("cursorEscrow").getAsString(),core.server.registryAccess()).getFirst();
             if(item.isEmpty()){core.store.updateOperation(operation.opid(),"DONE",payload.toString());continue;}
             String before=player.getInventory().save(new ListTag()).toString();payload.addProperty("claimBefore",before);core.store.updateOperation(operation.opid(),"CLAIM_INTENT",payload.toString());

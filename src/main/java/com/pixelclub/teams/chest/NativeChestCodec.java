@@ -317,6 +317,7 @@ public final class NativeChestCodec {
             for (JsonElement entry : element.getAsJsonArray()) sorted.add(canonical(entry));
             return sorted;
         }
+        if(element.isJsonPrimitive()&&element.getAsJsonPrimitive().isNumber())return new JsonPrimitive(new java.math.BigDecimal(element.getAsString()));
         return element.deepCopy();
     }
 

@@ -68,6 +68,10 @@ class NativeChestCodecTest {
         assertEquals(sword.get(DataComponents.DAMAGE), output.get(26).get(DataComponents.DAMAGE));
         assertEquals(encoded, NativeChestCodec.encode(output, registries));
     }
+    @Test void scientificFloatPayloadSurvivesEncodeDecodeAndChecksumParsing(){
+        ItemStack item=new ItemStack(Items.STONE);CompoundTag data=new CompoundTag();data.putFloat("tiny",1.0e-5f);data.putFloat("large",1.0e20f);data.putDouble("tiny_double",1.0e-30);item.set(DataComponents.CUSTOM_DATA,CustomData.of(data));List<ItemStack> contents=new ArrayList<>(Collections.nCopies(9,ItemStack.EMPTY));contents.set(0,item);String encoded=NativeChestCodec.encode(contents,registries);List<ItemStack> decoded=NativeChestCodec.decode(encoded,registries);assertTrue(NativeChestCodec.samePersistentItem(item,decoded.getFirst(),registries));assertEquals(encoded,NativeChestCodec.encode(decoded,registries));
+        JsonObject value=new JsonObject();value.addProperty("tiny",1.0e-5f);value.addProperty("large",1.0e20f);assertEquals(NativeChestCodec.semanticSha256(value),NativeChestCodec.semanticSha256(NativeChestCodec.parseStrict(value.toString())));
+    }
 
     @Test
     void rejectsUnknownItemComponentAndSilentExtraItemFields() {
