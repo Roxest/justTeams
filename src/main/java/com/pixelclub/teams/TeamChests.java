@@ -137,7 +137,7 @@ public final class TeamChests {
                 append(op,lease.team,player.getUUID(),"CLOSE_INTENT",payload);
                 if(core.store.operation(op).isEmpty())core.store.beginOperation(op,lease.team,player.getUUID(),"CHEST",0,"PREPARED",payload.toString());
                 core.store.updateOperation(op,"CLOSE_INTENT",payload.toString());
-                ItemStack remaining=carried.copy();player.getInventory().add(remaining);lease.menu.setCarried(ItemStack.EMPTY);
+                ItemStack remaining=carried.copy();OwnedInventoryReturn.insert(player.getInventory(),remaining);lease.menu.setCarried(ItemStack.EMPTY);
                 payload.addProperty("playerAfter",player.getInventory().save(new ListTag()).toString());payload.addProperty("cursorEscrow",cursor(remaining));
                 core.store.updateOperation(op,"PLAYER_INTENT",payload.toString());
                 if(!savePlayerConfirmed(player,player.getInventory().save(new ListTag())))throw new TeamsCore.Refusal("PLAYER_SAVE_UNVERIFIED");
@@ -157,7 +157,7 @@ public final class TeamChests {
             String before=player.getInventory().save(new ListTag()).toString();payload.addProperty("claimBefore",before);core.store.updateOperation(operation.opid(),"CLAIM_INTENT",payload.toString());
             append(operation.opid(),operation.teamId(),player.getUUID(),"CLAIM_INTENT",payload);
             try {
-                player.getInventory().add(item);payload.addProperty("claimAfter",player.getInventory().save(new ListTag()).toString());payload.addProperty("cursorEscrow",cursor(item));
+                OwnedInventoryReturn.insert(player.getInventory(),item);payload.addProperty("claimAfter",player.getInventory().save(new ListTag()).toString());payload.addProperty("cursorEscrow",cursor(item));
                 core.store.updateOperation(operation.opid(),"PLAYER_INTENT",payload.toString());
                 if(!savePlayerConfirmed(player,player.getInventory().save(new ListTag())))throw new TeamsCore.Refusal("PLAYER_SAVE_UNVERIFIED");
                 core.store.updateOperation(operation.opid(),item.isEmpty()?"DONE":"ESCROW",payload.toString());
