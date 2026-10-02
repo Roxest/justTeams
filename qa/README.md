@@ -71,3 +71,11 @@ state proof; it does not claim rendered GUI or a real pxc-auth session.
 Fixtures may demonstrate loaded/executed/state rungs. Real pxc-auth session
 context, rendered GUI, donor full176/79 import, and production restart/cutover are
 separate acceptance requirements.
+
+`fresh_pinned.py` stages the immutable b613 baseline with fresh synthetic seed and
+public resources. `matrix_b613.py` covers cache/PAPI/aliases/roles/admin/fee gates,
+real randomized40 transfers/cold readback and survival ESCROW. It records failed
+harness assumptions as well as genuine failures. `final_latest.py` covers the
+authorised final creative-return, scientific-codec, recipient claim and invalid
+preflight regressions. Check the digest's exact SHA before staging any artifact.
+The creative-loss b613 seed is retained outside the rig; no restoration is hidden.

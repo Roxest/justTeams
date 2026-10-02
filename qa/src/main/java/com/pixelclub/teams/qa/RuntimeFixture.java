@@ -82,6 +82,49 @@ public final class RuntimeFixture implements ModInitializer {
                     "awaitSince",api.getMethod("awaitQuiet",UUID.class,boolean.class,long.class,long.class).invoke(null,player.getUUID(),false,Long.parseLong(parts[2]),3000L));
             }
             case "snapshot":return snapshot(server,core,parts.length>1?parts[1]:"snapshot");
+            case "papi":{
+                Class<?> api=Class.forName("com.pixelclub.placeholders.api.PxcPlaceholders"),subjectApi=Class.forName("com.pixelclub.placeholders.api.PlaceholderSubject");
+                Object subject=parts[1].equals("null")?null:subjectApi.getMethod("offline",net.minecraft.server.MinecraftServer.class,UUID.class,String.class).invoke(null,server,offline(parts[1]),parts[1]);
+                Map<String,Object> values=new LinkedHashMap<>();values.put("registered",api.getMethod("isRegistered",String.class).invoke(null,"justteams"));
+                for(String key:parts[2].split(",")){String token="%justteams_"+key+"%";values.put(key,Map.of("engine",String.valueOf(api.getMethod("parse",subjectApi,String.class).invoke(null,subject,token)),"resolver",String.valueOf(Class.forName("com.pixelclub.teams.TeamPlaceholders").getMethod("resolve",core.getClass(),subjectApi,String.class).invoke(null,core,subject,key))));}return values;
+            }
+            case "policy":{
+                UUID a=parts[1].equals("null")?null:offline(parts[1]),b=parts[2].equals("null")?null:offline(parts[2]);
+                return String.valueOf(Class.forName("com.pixelclub.teams.api.TeamsDamagePolicy").getMethod("evaluate",UUID.class,UUID.class).invoke(null,a,b));
+            }
+            case "cache":{
+                Object snapshots=field(core,"snapshots");switch(parts[1]){case "failed"->call(snapshots,"failed",NONE);case "full"->call(snapshots,"refreshAll",NONE);case "team"->call(snapshots,"refreshTeam",new Class<?>[]{int.class},1);default->{}}
+                return Map.of("healthy",call(snapshots,"healthy",NONE));
+            }
+            case "nodes":{
+                Map<String,Object> nodes=new LinkedHashMap<>();for(String name:List.of("team","guild","g","clan","party","partymsg")){var node=server.getCommands().getDispatcher().getRoot().getChild(name);nodes.put(name,node==null?"absent":Map.of("identity",System.identityHashCode(node),"commandClass",node.getCommand()==null?"null":node.getCommand().getClass().getName()));}return nodes;
+            }
+            case "incumbent":{
+                if(!Set.of("party","guild").contains(parts[1]))throw new IllegalArgumentException("fixture alias only");
+                var root=server.getCommands().getDispatcher().getRoot();for(String name:List.of("children","literals","arguments")){Field f=com.mojang.brigadier.tree.CommandNode.class.getDeclaredField(name);f.setAccessible(true);((Map<?,?>)f.get(root)).remove(parts[1]);}
+                server.getCommands().getDispatcher().register(Commands.literal(parts[1]).executes(context->777));return "synthetic incumbent installed";
+            }
+            case "perms":{
+                ServerPlayer p=player(server,parts[1]);Class<?> provider=Class.forName("net.luckperms.api.LuckPermsProvider"),lp=Class.forName("net.luckperms.api.LuckPerms"),um=Class.forName("net.luckperms.api.model.user.UserManager");Object api=provider.getMethod("get").invoke(null),manager=lp.getMethod("getUserManager").invoke(api);((CompletableFuture<?>)um.getMethod("loadUser",UUID.class).invoke(manager,p.getUUID())).get(5,TimeUnit.SECONDS);
+                Class<?> access=Class.forName("com.pixelclub.teams.Access");return Map.of("admin",access.getMethod("admin",net.minecraft.commands.CommandSourceStack.class).invoke(null,p.createCommandSourceStack()),"feeMaximum",access.getMethod("permissionMoneyMaximum",ServerPlayer.class,String.class,double.class).invoke(null,p,"justteams.joinfee.",10000d));
+            }
+            case "gui":{
+                ServerPlayer p=player(server,parts[1]);List<Object> slots=new ArrayList<>();for(int i=0;i<p.containerMenu.slots.size();i++){var item=p.containerMenu.slots.get(i).getItem();var name=item.get(net.minecraft.core.component.DataComponents.CUSTOM_NAME);var lore=item.get(net.minecraft.core.component.DataComponents.LORE);slots.add(Map.of("slot",i,"item",item.toString(),"name",name==null?"":name.getString(),"nameTree",name==null?"":name.toString(),"lore",lore==null?List.of():lore.lines().stream().map(Component::getString).toList(),"loreTree",lore==null?List.of():lore.lines().stream().map(Object::toString).toList()));}return slots;
+            }
+            case "core":return invokeCore(server,core,parts[1],parts.length>2?args.substring(args.indexOf(parts[2])):"");
+            case "control":return control(core,parts[1],parts.length>2?args.substring(args.indexOf(parts[2])):"");
+            case "fill":{
+                ServerPlayer p=player(server,parts[1]);for(int i=0;i<36;i++)p.getInventory().setItem(i,new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.STONE,64));return snapshot(server,core,"synthetic-full-inventory");
+            }
+            case "oversword":{
+                ServerPlayer p=player(server,"JTMoneyOwner");var stack=new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.IRON_SWORD,2);stack.set(net.minecraft.core.component.DataComponents.MAX_STACK_SIZE,1);p.getInventory().setItem(0,stack);return Map.of("count",stack.getCount(),"maximum",stack.getMaxStackSize());
+            }
+            case "codecfloat":{
+                var item=new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.DIAMOND,1);var tag=new net.minecraft.nbt.CompoundTag();tag.putFloat("tinyFloat",1e-5f);tag.putFloat("largeFloat",1e20f);tag.putDouble("tinyDouble",1e-30d);item.set(net.minecraft.core.component.DataComponents.CUSTOM_DATA,net.minecraft.world.item.component.CustomData.of(tag));
+                List<net.minecraft.world.item.ItemStack> slots=new ArrayList<>(Collections.nCopies(9,net.minecraft.world.item.ItemStack.EMPTY));slots.set(0,item);
+                Class<?> codec=Class.forName("com.pixelclub.teams.chest.NativeChestCodec");String encoded=(String)codec.getMethod("encode",List.class,net.minecraft.core.RegistryAccess.class).invoke(null,slots,server.registryAccess());
+                Object decoded=codec.getMethod("decode",String.class,net.minecraft.core.RegistryAccess.class).invoke(null,encoded,server.registryAccess());String again=(String)codec.getMethod("encode",List.class,net.minecraft.core.RegistryAccess.class).invoke(null,decoded,server.registryAccess());return Map.of("exactCanonicalRoundtrip",encoded.equals(again),"encoded",encoded,"reencoded",again);
+            }
             case "armsql":closeSqlAfterPrepared=true;return "actual pool closes after next real CHEST PREPARED SQL commit";
             case "savetrace":{
                 ServerPlayer player=player(server,parts[1]);return List.copyOf(SAVE_TRACE.getOrDefault(player.getUUID(),List.of()));
@@ -195,4 +238,30 @@ public final class RuntimeFixture implements ModInitializer {
         Files.writeString(folder.resolve(String.format("%d-%04d.json",RUN,++sequence)),new GsonBuilder().setPrettyPrinting().create().toJson(row));
     }
     private static Throwable unwrap(Throwable error){while((error instanceof InvocationTargetException||error instanceof java.util.concurrent.ExecutionException)&&error.getCause()!=null)error=error.getCause();return error;}
+    private static UUID offline(String name){return UUID.nameUUIDFromBytes(("OfflinePlayer:"+name).getBytes(java.nio.charset.StandardCharsets.UTF_8));}
+    private static Object invokeCore(net.minecraft.server.MinecraftServer server,Object core,String method,String arguments)throws Exception{
+        String[] a=arguments.split("\\s+");ServerPlayer p=player(server,a[0]);
+        return switch(method){
+            case "role"->call(core,method,new Class<?>[]{ServerPlayer.class,UUID.class,boolean.class},p,offline(a[1]),Boolean.parseBoolean(a[2]));
+            case "kick"->call(core,method,new Class<?>[]{ServerPlayer.class,UUID.class},p,offline(a[1]));
+            case "editFlag"->call(core,method,new Class<?>[]{ServerPlayer.class,UUID.class,String.class,boolean.class},p,offline(a[1]),a[2],Boolean.parseBoolean(a[3]));
+            case "member"->call(field(core,"menus"),method,new Class<?>[]{ServerPlayer.class,UUID.class},p,offline(a[1]));
+            case "adminPoints"->call(core,method,new Class<?>[]{ServerPlayer.class,int.class,String.class,long.class},p,Integer.parseInt(a[1]),a[2],Long.parseLong(a[3]));
+            case "adminBalance"->call(core,method,new Class<?>[]{ServerPlayer.class,int.class,double.class,String.class},p,Integer.parseInt(a[1]),Double.parseDouble(a[2]),a[3]);
+            case "adminStats"->call(core,method,new Class<?>[]{ServerPlayer.class,int.class,int.class,int.class},p,Integer.parseInt(a[1]),Integer.parseInt(a[2]),Integer.parseInt(a[3]));
+            case "adminSetting"->call(core,method,new Class<?>[]{ServerPlayer.class,int.class,String.class,Object.class},p,Integer.parseInt(a[1]),a[2],Set.of("kills","deaths").contains(a[2])?Integer.parseInt(a[3]):a[3]);
+            case "acceptRequest"->call(core,method,new Class<?>[]{ServerPlayer.class,UUID.class},p,offline(a[1]));
+            case "claim"->call(field(core,"chests"),method,new Class<?>[]{ServerPlayer.class},p);
+            default->throw new IllegalArgumentException("unapproved fixture core method");
+        };
+    }
+    private static Object control(Object core,String method,String arguments)throws Exception{
+        Object store=field(core,"store");String[] a=arguments.split("\\s+");
+        switch(method){
+            case "flag":call(store,"setMemberFlags",new Class<?>[]{int.class,UUID.class,Map.class},1,offline(a[0]),Map.of(a[1],Boolean.parseBoolean(a[2])));call(core,"refreshTeam",new Class<?>[]{int.class},1);return "synthetic flag control";
+            case "team":Object value=Set.of("pvp_enabled","is_public","glow_enabled","join_fee_enabled").contains(a[0])?Boolean.parseBoolean(a[1]):Set.of("points").contains(a[0])?Long.parseLong(a[1]):Set.of("join_fee_amount").contains(a[0])?Double.parseDouble(a[1]):arguments.substring(arguments.indexOf(a[1]));call(store,"updateTeam",new Class<?>[]{int.class,UUID.class,Map.class},1,offline("JTMoneyOwner"),Map.of(a[0],value));call(core,"refreshTeam",new Class<?>[]{int.class},1);return "synthetic team control";
+            case "ally":if(Boolean.parseBoolean(a[0]))call(store,"insertRow",new Class<?>[]{String.class,Map.class},"team_allies",Map.of("team_id_1",1,"team_id_2",2));else call(store,"deleteRows",new Class<?>[]{String.class,Map.class},"team_allies",Map.of("team_id_1",1,"team_id_2",2));call(field(core,"snapshots"),"refreshAllies",NONE);return "synthetic ally control";
+            default:throw new IllegalArgumentException("unapproved fixture control");
+        }
+    }
 }
