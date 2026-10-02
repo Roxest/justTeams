@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "justteams-runtime-qa",
+  "version": "1.0.0",
+  "name": "JustTeams isolated runtime acceptance fixture",
+  "environment": "server",
+  "entrypoints": {"main": ["com.pixelclub.teams.qa.RuntimeFixture"]},
+  "mixins": ["jtqa.mixins.json"],
+  "depends": {"fabricloader": ">=0.16.0", "minecraft": "1.21.1", "fabric-api": "*", "justteams": "*", "carpet": "*"}
+}

@@ -1,0 +1,7 @@
+{
+  "required": true,
+  "package": "com.pixelclub.teams.qa.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": ["PreparedSqlFaultMixin", "SaveReservationProbeMixin"],
+  "injectors": {"defaultRequire": 1}
+}
