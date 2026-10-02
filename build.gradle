@@ -1,0 +1,113 @@
+plugins {
+    id 'fabric-loom' version '1.9-SNAPSHOT'
+    id 'java'
+}
+
+version = project.mod_version
+group = project.mod_group
+base.archivesName = 'JustTeams-Fabric-PXC'
+
+def baselineJar = file(providers.gradleProperty('baselineJar').orElse('libs/JustTeams-Fabric-2.5.5.jar').get())
+def baselineSha256 = '162dfd8c551497d08fcfe64dbbcc09437812a8ca1ae3eddf442408e6cf72e86a'
+
+repositories {
+    maven { url 'https://maven.fabricmc.net/' }
+    maven { url 'https://maven.nucleoid.xyz/' }
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
+    modImplementation include("eu.pb4:sgui:${sgui_version}")
+    modImplementation include("me.lucko:fabric-permissions-api:${fabric_permissions_version}")
+
+    // Plain compile classpath preserves the original ABI and relocated helper libraries.
+    // The pinned baseline already contains SnakeYAML, Adventure and relocated Hikari.
+    compileOnly files(baselineJar)
+    // Optional runtime integration; the core is a separate mod and must never be bundled.
+    modCompileOnly files('libs/pxc-placeholders-0.1.4.jar')
+    testImplementation files(baselineJar)
+    testImplementation platform("org.junit:junit-bom:${junit_version}")
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testImplementation "com.h2database:h2:${h2_version}"
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+    options.encoding = 'UTF-8'
+}
+
+tasks.withType(AbstractArchiveTask).configureEach {
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') {
+        expand version: project.version
+    }
+}
+
+tasks.register('verifyBaseline') {
+    inputs.file baselineJar
+    doLast {
+        if (!baselineJar.isFile()) {
+            throw new GradleException("Copy the licensed exact Fabric 2.5.5 jar to ${baselineJar}; it is never downloaded or committed.")
+        }
+        def digest = java.security.MessageDigest.getInstance('SHA-256')
+        baselineJar.withInputStream { input ->
+            byte[] buffer = new byte[8192]
+            int length
+            while ((length = input.read(buffer)) != -1) {
+                digest.update(buffer, 0, length)
+            }
+        }
+        def actual = digest.digest().encodeHex().toString()
+        if (actual != baselineSha256) {
+            throw new GradleException("Baseline SHA-256 mismatch: ${actual}")
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    dependsOn tasks.named('verifyBaseline')
+}
+
+test {
+    dependsOn tasks.named('verifyBaseline')
+    useJUnitPlatform()
+    workingDir = layout.buildDirectory.dir('isolated-test-runtime').get().asFile
+    doFirst { workingDir.mkdirs() }
+}
+
+tasks.register('overlayJar', Exec) {
+    dependsOn tasks.named('remapJar'), tasks.named('verifyBaseline')
+    def output = layout.buildDirectory.file("libs/JustTeams-${project.version}.jar")
+    def report = layout.buildDirectory.file('reports/overlay.json')
+    inputs.file baselineJar
+    inputs.file tasks.named('remapJar').flatMap { it.archiveFile }
+    inputs.file 'tools/overlay.py'
+    outputs.file output
+    outputs.file report
+    doFirst {
+        commandLine providers.gradleProperty('pythonExecutable').orElse('F:/Pixelclub/tools/.venv/Scripts/python.exe').get(),
+            'tools/overlay.py', 'build', '--base', baselineJar.absolutePath,
+            '--patch', tasks.named('remapJar').get().archiveFile.get().asFile.absolutePath,
+            '--output', output.get().asFile.absolutePath, '--report', report.get().asFile.absolutePath,
+            '--version', project.version.toString()
+    }
+}
+
+tasks.named('check') { dependsOn tasks.named('verifyBaseline') }
+tasks.named('build') { dependsOn tasks.named('overlayJar') }

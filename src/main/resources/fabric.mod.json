@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "justteams",
+  "version": "${version}",
+  "name": "JustTeams",
+  "description": "Pixel Club's exact Fabric 2.5.5 compatibility patch.",
+  "authors": ["kotori", "Pixel Club"],
+  "license": "CC-BY-NC-SA-4.0",
+  "environment": "server",
+  "entrypoints": {"main": ["com.pixelclub.teams.TeamsMod"]},
+  "suggests": {"pxc-placeholders": ">=0.1.4"},
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": "~1.21.1",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
