@@ -1,5 +1,5 @@
 plugins {
-    id 'fabric-loom' version '1.9-SNAPSHOT'
+    id 'fabric-loom' version '1.9.2'
     id 'java'
 }
 
@@ -111,3 +111,30 @@ tasks.register('overlayJar', Exec) {
 
 tasks.named('check') { dependsOn tasks.named('verifyBaseline') }
 tasks.named('build') { dependsOn tasks.named('overlayJar') }
+
+// A separate offline conversion rig loads only this addon and the shared codec.
+sourceSets {
+    chestConverter {
+        java.srcDir 'converter/src/main/java'
+        resources.srcDir 'converter/src/main/resources'
+        compileClasspath += sourceSets.main.compileClasspath + sourceSets.main.output
+    }
+}
+
+tasks.register('chestConverterJar', Jar) {
+    dependsOn tasks.named('chestConverterClasses'), tasks.named('classes')
+    archiveBaseName = 'justteams-chest-converter'
+    archiveClassifier = 'dev'
+    from sourceSets.chestConverter.output
+    from(sourceSets.main.output) {
+        include 'com/pixelclub/teams/chest/NativeChestCodec*.class'
+    }
+}
+
+tasks.register('remapChestConverterJar', net.fabricmc.loom.task.RemapJarTask) {
+    dependsOn tasks.named('chestConverterJar')
+    inputFile = tasks.named('chestConverterJar').flatMap { it.archiveFile }
+    archiveBaseName = 'justteams-chest-converter'
+    archiveClassifier = ''
+    addNestedDependencies = false
+}
