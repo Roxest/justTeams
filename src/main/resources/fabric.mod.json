@@ -8,6 +8,7 @@
   "license": "CC-BY-NC-SA-4.0",
   "environment": "server",
   "entrypoints": {"main": ["com.pixelclub.teams.TeamsMod"]},
+  "mixins": ["pxc-teams.mixins.json"],
   "suggests": {"pxc-placeholders": ">=0.1.4"},
   "depends": {
     "fabricloader": ">=0.16.0",

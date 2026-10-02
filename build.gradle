@@ -23,10 +23,14 @@ dependencies {
     modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
     modImplementation include("eu.pb4:sgui:${sgui_version}")
     modImplementation include("me.lucko:fabric-permissions-api:${fabric_permissions_version}")
+    implementation include("net.kyori:adventure-text-serializer-gson:4.17.0")
+    implementation include("net.kyori:adventure-text-serializer-json:4.17.0")
+    implementation include("net.kyori:option:1.0.0")
 
     // Plain compile classpath preserves the original ABI and relocated helper libraries.
     // The pinned baseline already contains SnakeYAML, Adventure and relocated Hikari.
     compileOnly files(baselineJar)
+    compileOnly files('libs/Impactor-Fabric-5.3.5+1.21.1.jar')
     // Optional runtime integration; the core is a separate mod and must never be bundled.
     modCompileOnly files('libs/pxc-placeholders-0.1.4.jar')
     testImplementation files(baselineJar)
