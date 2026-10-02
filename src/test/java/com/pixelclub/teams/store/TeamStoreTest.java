@@ -73,6 +73,8 @@ class TeamStoreTest {
         assertFalse(store.mutateBank("cap", team.id(), member, 2, 100, false, false).applied());
         assertFalse(store.mutateBank("negative", team.id(), owner, -100, 100, true, false).applied());
         assertFalse(store.mutateBank("outsider", team.id(), UUID.randomUUID(), -1, 100, false, true).applied());
+        store.updateOperation("fund", "DONE", "{}");
+        store.updateOperation("bypass", "DONE", "{}");
         assertTrue(store.leave(member));
         assertFalse(store.mutateBank("left", team.id(), member, 1, 100, false, true).applied());
         assertEquals(99, store.team(team.id()).orElseThrow().balance());
@@ -183,6 +185,112 @@ class TeamStoreTest {
         assertEquals("FROZEN", store.pendingOperations().getFirst().phase());
     }
 
+    @Test void preparedFinancialOperationsBlockDestructionUntilTerminalForTeamOrActor() throws Exception {
+        UUID member = addMember(2);
+        store.beginOperation("active", team.id(), member, "DEPOSIT", 10, "PREPARED", "{}");
+        assertFalse(store.deleteTeam(team.id(), owner));
+        assertFalse(store.removeMember(team.id(), member));
+        assertFalse(store.leave(member));
+        assertFalse(store.kick(team.id(), member));
+        store.updateOperation("active", "CANCELLED", "{}");
+        assertTrue(store.removeMember(team.id(), member));
+        store.beginOperation("actor-cost", 0, owner, "FEATURE_COST", 1, "PREPARED", "{}");
+        assertFalse(store.deleteTeam(team.id(), owner));
+        store.updateOperation("actor-cost", "COMPENSATED", "{}");
+        store.beginOperation("invite-metadata", team.id(), owner, "INVITE", 0, "PREPARED", "{}");
+        assertTrue(store.deleteTeam(team.id(), owner));
+    }
+
+    @Test void ownershipTransferIsAtomicAndPreservesEveryUnchangedDonorField() throws Exception {
+        UUID target = addMember(2);
+        store.setMemberFlags(team.id(), owner, Map.of("can_edit_members", false, "can_promote_to_co_owner", true));
+        store.setMemberFlags(team.id(), target, Map.of("can_use_enderchest", false, "can_edit_members", true, "can_demote_members", true));
+        sql("UPDATE donut_teams SET balance=123.000001,description='preserved',home_location='fixture-location',alias='fixture-alias' WHERE id=" + team.id());
+        Map<String, Object> beforeTeam = store.team(team.id()).orElseThrow().fields();
+        Map<String, Object> beforeOwner = store.member(owner).orElseThrow().fields();
+        Map<String, Object> beforeTarget = store.member(target).orElseThrow().fields();
+        assertFalse(store.transferOwnership(team.id(), UUID.randomUUID(), target));
+        assertFalse(store.transferOwnership(team.id(), owner, owner));
+        assertFalse(store.transferOwnership(team.id(), owner, UUID.randomUUID()));
+        store.beginOperation("target-cost", 0, target, "FEATURE_COST", 1, "PREPARED", "{}");
+        assertFalse(store.transferOwnership(team.id(), owner, target));
+        store.updateOperation("target-cost", "CANCELLED", "{}");
+        sql("ALTER TABLE donut_teams ADD CONSTRAINT fixture_owner CHECK(owner_uuid <> '" + target + "')");
+        assertThrows(SQLException.class, () -> store.transferOwnership(team.id(), owner, target));
+        assertEquals(beforeTeam, store.team(team.id()).orElseThrow().fields());
+        assertEquals(beforeOwner, store.member(owner).orElseThrow().fields());
+        assertEquals(beforeTarget, store.member(target).orElseThrow().fields());
+        sql("ALTER TABLE donut_teams DROP CONSTRAINT fixture_owner");
+        assertTrue(store.transferOwnership(team.id(), owner, target));
+        Map<String, Object> expectedTeam = new LinkedHashMap<>(beforeTeam);
+        expectedTeam.put("owner_uuid", target.toString());
+        Map<String, Object> expectedOwner = new LinkedHashMap<>(beforeOwner);
+        expectedOwner.put("role", "MEMBER"); expectedOwner.put("can_withdraw", false); expectedOwner.put("can_use_enderchest", true); expectedOwner.put("can_set_home", false); expectedOwner.put("can_use_home", true);
+        Map<String, Object> expectedTarget = new LinkedHashMap<>(beforeTarget);
+        expectedTarget.put("role", "OWNER");
+        for (String flag : java.util.List.of("can_withdraw", "can_use_enderchest", "can_set_home", "can_use_home")) expectedTarget.put(flag, true);
+        assertEquals(expectedTeam, store.team(team.id()).orElseThrow().fields());
+        assertEquals(expectedOwner, store.member(owner).orElseThrow().fields());
+        assertEquals(expectedTarget, store.member(target).orElseThrow().fields());
+        assertFalse(store.leave(target)); assertTrue(store.leave(owner));
+    }
+
+    @Test void publicJoinEnforcesVisibilityMembershipCapacityBlacklistAndCleansRequests() throws Exception {
+        UUID target = UUID.randomUUID();
+        assertFalse(store.joinPublic(target, team.id(), 2));
+        assertTrue(store.updateTeam(team.id(), owner, Map.of("is_public", true)));
+        assertFalse(store.joinPublic(target, team.id(), 1));
+        UUID otherOwner = UUID.randomUUID();
+        Team other = store.create("Other", "OT", otherOwner, "OtherOwner", "fixture-server");
+        assertFalse(store.joinPublic(otherOwner, team.id(), 2));
+        UUID blocked = UUID.randomUUID();
+        blacklist(blocked);
+        assertFalse(store.joinPublic(blocked, team.id(), 2));
+        store.insertRow("join_requests", Map.of("team_id", team.id(), "player_uuid", target));
+        store.insertRow("join_requests", Map.of("team_id", other.id(), "player_uuid", target));
+        assertTrue(store.joinPublic(target, team.id(), 2));
+        assertMemberDefaults(target);
+        assertTrue(store.rows("join_requests", "player_uuid", target).isEmpty());
+        assertFalse(store.joinPublic(UUID.randomUUID(), team.id(), 2));
+        assertFalse(store.joinPublic(target, team.id(), 3));
+    }
+
+    @Test void acceptingRequestsRequiresAuthorizedRoleAndKeepsRequestOnFailure() throws Exception {
+        UUID approver = addMember(2);
+        UUID target = UUID.randomUUID();
+        assertFalse(store.acceptRequest(team.id(), owner, target, 3));
+        store.insertRow("join_requests", Map.of("team_id", team.id(), "player_uuid", target));
+        assertFalse(store.acceptRequest(team.id(), approver, target, 3));
+        assertFalse(store.acceptRequest(team.id(), UUID.randomUUID(), target, 3));
+        assertFalse(store.acceptRequest(team.id(), owner, target, 2));
+        assertTrue(store.setMemberRoleAndFlags(team.id(), approver, "CO_OWNER", Map.of("can_withdraw", false)));
+        sql("ALTER TABLE donut_team_members ADD CONSTRAINT fixture_join CHECK(player_uuid <> '" + target + "')");
+        assertThrows(SQLException.class, () -> store.acceptRequest(team.id(), approver, target, 3));
+        assertTrue(store.member(target).isEmpty());
+        assertEquals(1, store.rows("join_requests", "player_uuid", target).size());
+        sql("ALTER TABLE donut_team_members DROP CONSTRAINT fixture_join");
+        assertTrue(store.acceptRequest(team.id(), approver, target, 3));
+        assertMemberDefaults(target);
+        assertTrue(store.rows("join_requests", "player_uuid", target).isEmpty());
+        assertFalse(store.acceptRequest(team.id(), owner, target, 4));
+        UUID blocked = UUID.randomUUID();
+        blacklist(blocked);
+        store.insertRow("join_requests", Map.of("team_id", team.id(), "player_uuid", blocked));
+        assertFalse(store.acceptRequest(team.id(), owner, blocked, 4));
+    }
+
+    @Test void denyingAnInviteOnlyRemovesTargetsInviteAndCancelsItsSidecar() throws Exception {
+        UUID target = UUID.randomUUID();
+        assertTrue(store.invite(team.id(), owner, target, System.currentTimeMillis() + 100000));
+        assertFalse(store.denyInvite(UUID.randomUUID(), team.id()));
+        assertEquals(1, store.rows("team_invites", "team_id", team.id()).size());
+        assertTrue(store.denyInvite(target, team.id()));
+        assertTrue(store.rows("team_invites", "team_id", team.id()).isEmpty());
+        assertEquals("CANCELLED", store.operation("invite:" + team.id() + ":" + target).orElseThrow().phase());
+        assertFalse(store.accept(target, team.id(), 2));
+        assertFalse(store.denyInvite(target, team.id()));
+    }
+
     @Test void warpCapIdentityUniquenessAndGenericWhitelistAreEnforced() throws Exception {
         assertTrue(store.setWarp(team.id(), "base", "world:1,2,3", "original-server", null, 1));
         assertFalse(store.setWarp(team.id(), "other", "world:4,5,6", "original-server", null, 1));
@@ -242,6 +350,18 @@ class TeamStoreTest {
         assertTrue(store.invite(team.id(), owner, member, System.currentTimeMillis() + 100000));
         assertTrue(store.accept(member, team.id(), maxMembers));
         return member;
+    }
+    private void blacklist(UUID target) throws SQLException {
+        store.insertRow("team_blacklist", Map.of("team_id", team.id(), "player_uuid", target, "player_name", "Blocked", "blacklisted_by_uuid", owner, "blacklisted_by_name", "TestOwner"));
+    }
+    private void assertMemberDefaults(UUID player) throws SQLException {
+        Member member = store.member(player).orElseThrow();
+        assertEquals("MEMBER", member.role());
+        assertEquals(team.id(), member.teamId());
+        assertNotNull(member.field("join_date"));
+        Map<String, Object> flags = new LinkedHashMap<>();
+        member.fields().forEach((key, value) -> { if (key.startsWith("can_")) flags.put(key, value); });
+        assertEquals(Map.of("can_withdraw", false, "can_use_enderchest", true, "can_set_home", false, "can_use_home", true, "can_promote_to_co_owner", false, "can_edit_members", false, "can_edit_co_owners", false, "can_kick_members", false, "can_promote_members", false, "can_demote_members", false), flags);
     }
     private void sql(String fixtureSql) throws SQLException {
         try (Connection connection = factory.open(); Statement statement = connection.createStatement()) { statement.execute(fixtureSql); }
