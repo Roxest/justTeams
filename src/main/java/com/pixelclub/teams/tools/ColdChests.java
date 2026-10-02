@@ -56,7 +56,7 @@ public final class ColdChests {
         try {
             Options options = options(args);
             Config config = config(options.properties());
-            ColdGate gate = options.fixtureRoot() == null ? ColdGate.docker(options.container()) : ColdGate.fixture(options.fixtureRoot(), config.url(), config.driver());
+            ColdGate gate = options.fixtureRoot() == null ? ColdGate.docker(options.container(), !options.mode().equals("export-native")) : ColdGate.fixture(options.fixtureRoot(), config.url(), config.driver());
             if (Files.exists(options.output())) throw new IllegalArgumentException();
             JsonObject proof = switch (options.mode()) {
                 case "import" -> importNative(options, config, gate);

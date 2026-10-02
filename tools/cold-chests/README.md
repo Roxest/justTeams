@@ -31,11 +31,17 @@ Every output path uses CREATE_NEW. Existing outputs are refused.
 
 ## Docker and fixture gates
 
-Every real invocation requires local `docker inspect --format '{{json .State}}'` for exactly one of
-`pixelclub-arclight`, `pixelclub-fabric`, `pixelclub-dev`. Running, Restarting and Paused must all be
+Every real invocation requires local Docker inspect for exactly one of
+`pixelclub-arclight`, explicitly planned `pixelclub-fabric`, or configured dev `pixelclub-arclight-dev`.
+The unmapped `pixelclub-dev` alias is refused. The command projects only State and
+HostConfig.RestartPolicy, avoiding private container environment fields. Running, Restarting and Paused must all be
 actual JSON booleans false. StartedAt must remain unchanged from the first inspection through
 pre-commit and final checks. Missing/unavailable Docker, malformed state, a restarted container or
-an unallowlisted name is refused. No injected test probe is exposed through CLI arguments.
+an unallowlisted name is refused. Import/rollback additionally require actual
+HostConfig.RestartPolicy.Name exactly `no` at every inspection. The coordinator may explicitly pin and
+restore that policy within the exclusive approved window; the helper never changes restart policy.
+Readonly export still requires stopped/stable state but does not change or require policy `no`.
+No injected test probe is exposed through CLI arguments.
 
 Tests can use `--fixture-root <absolute local root>` instead of `--container`, only for an existing
 `jdbc:h2:file:` database inside that root with the regular `.justteams-synthetic-fixture` marker.

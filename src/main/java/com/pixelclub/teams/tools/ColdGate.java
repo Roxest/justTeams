@@ -12,19 +12,21 @@ import java.util.concurrent.TimeUnit;
 
 /** Actual CLI always uses Docker; only a marked, existing local H2 file permits bypass. */
 final class ColdGate {
-    private static final Set<String> CONTAINERS = Set.of("pixelclub-arclight", "pixelclub-fabric", "pixelclub-dev");
-    record State(boolean running, boolean restarting, boolean paused, String startedAt) {}
+    private static final Set<String> CONTAINERS = Set.of("pixelclub-arclight", "pixelclub-fabric", "pixelclub-arclight-dev");
+    record State(boolean running, boolean restarting, boolean paused, String startedAt, String restartPolicy) {}
     interface Probe { State inspect(String container) throws Exception; }
     private final String container;
     private final Probe probe;
     private final State initial;
+    private final boolean mutating;
 
-    private ColdGate(String container, Probe probe, State initial) { this.container = container; this.probe = probe; this.initial = initial; }
-    static ColdGate docker(String container) throws Exception { return docker(container, ColdGate::inspectDocker); }
-    static ColdGate docker(String container, Probe probe) throws Exception {
+    private ColdGate(String container, Probe probe, State initial, boolean mutating) { this.container = container; this.probe = probe; this.initial = initial; this.mutating = mutating; }
+    static ColdGate docker(String container, boolean mutating) throws Exception { return docker(container, mutating, ColdGate::inspectDocker); }
+    static ColdGate docker(String container, Probe probe) throws Exception { return docker(container, true, probe); }
+    static ColdGate docker(String container, boolean mutating, Probe probe) throws Exception {
         if (!CONTAINERS.contains(container)) throw new IllegalArgumentException();
-        State state = probe.inspect(container); stopped(state);
-        return new ColdGate(container, probe, state);
+        State state = probe.inspect(container); stopped(state, mutating);
+        return new ColdGate(container, probe, state, mutating);
     }
     static ColdGate fixture(Path rootArgument, String url, String driver) throws Exception {
         if (!rootArgument.isAbsolute() || network(rootArgument)) throw new IllegalArgumentException();
@@ -40,30 +42,37 @@ final class ColdGate {
             String option = sections[i].toUpperCase(java.util.Locale.ROOT);
             if (!Set.of("MODE=MYSQL", "AUTO_SERVER=FALSE", "DB_CLOSE_ON_EXIT=FALSE", "IFEXISTS=TRUE").contains(option)) throw new IllegalArgumentException();
         }
-        return new ColdGate(null, null, null);
+        return new ColdGate(null, null, null, false);
     }
     void check() throws Exception {
         if (probe == null) return;
-        State state = probe.inspect(container); stopped(state);
+        State state = probe.inspect(container); stopped(state, mutating);
         if (!state.startedAt().equals(initial.startedAt())) throw new IllegalArgumentException();
     }
     static State parseState(String json) throws Exception {
         JsonElement parsed = ColdFiles.parse(json);
+        if (parsed.isJsonArray() && parsed.getAsJsonArray().size() == 1) parsed = parsed.getAsJsonArray().get(0);
         if (!parsed.isJsonObject()) throw new IllegalArgumentException();
-        JsonObject object = parsed.getAsJsonObject();
-        return new State(bool(object, "Running"), bool(object, "Restarting"), bool(object, "Paused"), ColdFiles.text(object, "StartedAt"));
+        JsonObject record = parsed.getAsJsonObject();
+        if (!record.has("State") || !record.get("State").isJsonObject() || !record.has("HostConfig") || !record.get("HostConfig").isJsonObject()) throw new IllegalArgumentException();
+        JsonObject state = record.getAsJsonObject("State"), host = record.getAsJsonObject("HostConfig");
+        if (!host.has("RestartPolicy") || !host.get("RestartPolicy").isJsonObject()) throw new IllegalArgumentException();
+        return new State(bool(state, "Running"), bool(state, "Restarting"), bool(state, "Paused"), ColdFiles.text(state, "StartedAt"), ColdFiles.text(host.getAsJsonObject("RestartPolicy"), "Name"));
     }
     private static boolean bool(JsonObject object, String key) {
         JsonElement value = object.get(key);
         if (value == null || !value.isJsonPrimitive() || !value.getAsJsonPrimitive().isBoolean()) throw new IllegalArgumentException();
         return value.getAsBoolean();
     }
-    private static void stopped(State state) {
+    private static void stopped(State state, boolean mutating) {
         if (state == null || state.running() || state.restarting() || state.paused()) throw new IllegalArgumentException();
+        if (state.restartPolicy() == null || mutating && !state.restartPolicy().equals("no")) throw new IllegalArgumentException();
         Instant.parse(state.startedAt());
     }
     private static State inspectDocker(String container) throws Exception {
-        Process process = new ProcessBuilder("docker", "inspect", "--format", "{{json .State}}", container)
+        // Read only the required inspect fields; full inspect also contains private environment data.
+        String projection = "{\"State\":{{json .State}},\"HostConfig\":{\"RestartPolicy\":{{json .HostConfig.RestartPolicy}}}}";
+        Process process = new ProcessBuilder("docker", "inspect", "--format", projection, container)
                 .redirectError(ProcessBuilder.Redirect.DISCARD).start();
         var reading = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
             try { return process.getInputStream().readNBytes(16 * 1024 + 1); }

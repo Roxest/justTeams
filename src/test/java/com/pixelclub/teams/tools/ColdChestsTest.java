@@ -150,14 +150,35 @@ class ColdChestsTest {
     }
     @Test void dockerGateRequiresRealTypedStoppedStateAndStableStartAndRefusesUnavailable() throws Exception {
         String time = "2026-10-03T00:00:00Z";
-        assertThrows(Exception.class, () -> ColdGate.docker("unallowlisted", name -> new ColdGate.State(false, false, false, time)));
+        assertThrows(Exception.class, () -> ColdGate.docker("unallowlisted", name -> new ColdGate.State(false, false, false, time, "no")));
         assertThrows(Exception.class, () -> ColdGate.docker("pixelclub-arclight", name -> { throw new java.io.IOException("secret"); }));
-        for (ColdGate.State state : java.util.List.of(new ColdGate.State(true, false, false, time), new ColdGate.State(false, true, false, time), new ColdGate.State(false, false, true, time))) assertThrows(Exception.class, () -> ColdGate.docker("pixelclub-fabric", name -> state));
+        for (ColdGate.State state : java.util.List.of(new ColdGate.State(true, false, false, time, "no"), new ColdGate.State(false, true, false, time, "no"), new ColdGate.State(false, false, true, time, "no"))) assertThrows(Exception.class, () -> ColdGate.docker("pixelclub-fabric", name -> state));
         var counter = new java.util.concurrent.atomic.AtomicInteger();
-        ColdGate gate = ColdGate.docker("pixelclub-dev", name -> new ColdGate.State(false, false, false, counter.getAndIncrement() == 0 ? time : "2026-10-03T00:00:01Z"));
+        ColdGate gate = ColdGate.docker("pixelclub-arclight-dev", name -> new ColdGate.State(false, false, false, counter.getAndIncrement() == 0 ? time : "2026-10-03T00:00:01Z", "no"));
         assertThrows(Exception.class, gate::check);
-        assertThrows(Exception.class, () -> ColdGate.parseState("{\"Running\":\"false\",\"Restarting\":false,\"Paused\":false,\"StartedAt\":\"" + time + "\"}"));
-        ColdGate.docker("pixelclub-arclight", name -> new ColdGate.State(false, false, false, time)).check();
+        assertThrows(Exception.class, () -> ColdGate.parseState("{\"State\":{\"Running\":\"false\",\"Restarting\":false,\"Paused\":false,\"StartedAt\":\"" + time + "\"},\"HostConfig\":{\"RestartPolicy\":{\"Name\":\"no\"}}}"));
+        ColdGate.docker("pixelclub-arclight", name -> new ColdGate.State(false, false, false, time, "no")).check();
+    }
+    @Test void actualDevNameReachesProbeAndUnmappedAliasCannotInspect() throws Exception {
+        var inspections = new java.util.concurrent.atomic.AtomicInteger();
+        ColdGate.Probe probe = name -> { inspections.incrementAndGet(); assertEquals("pixelclub-arclight-dev", name); return new ColdGate.State(false, false, false, "2026-10-03T00:00:00Z", "no"); };
+        ColdGate.docker("pixelclub-arclight-dev", probe).check();
+        assertEquals(2, inspections.get());
+        assertThrows(Exception.class, () -> ColdGate.docker("pixelclub-dev", probe));
+        assertEquals(2, inspections.get());
+    }
+    @Test void mutationsRequireExplicitNoRestartPolicyInitiallyAndBeforeCommit() throws Exception {
+        String time = "2026-10-03T00:00:00Z";
+        for (String policy : java.util.List.of("always", "unless-stopped", "on-failure", "")) assertThrows(Exception.class, () -> ColdGate.docker("pixelclub-arclight", true, name -> new ColdGate.State(false, false, false, time, policy)));
+        var inspections = new java.util.concurrent.atomic.AtomicInteger();
+        ColdGate gate = ColdGate.docker("pixelclub-arclight", true, name -> new ColdGate.State(false, false, false, time, inspections.getAndIncrement() == 0 ? "no" : "unless-stopped"));
+        assertThrows(Exception.class, gate::check);
+        ColdGate.docker("pixelclub-arclight", false, name -> new ColdGate.State(false, false, false, time, "unless-stopped")).check();
+        String record = "{\"State\":{\"Running\":false,\"Restarting\":false,\"Paused\":false,\"StartedAt\":\"" + time + "\"},\"HostConfig\":{\"RestartPolicy\":{\"Name\":\"no\",\"MaximumRetryCount\":0}}}";
+        assertEquals("no", ColdGate.parseState(record).restartPolicy());
+        assertEquals("no", ColdGate.parseState("[" + record + "]").restartPolicy());
+        assertThrows(Exception.class, () -> ColdGate.parseState("{\"State\":{\"Running\":false}}"));
+        assertThrows(Exception.class, () -> ColdGate.parseState(record.replace("\"Name\":\"no\"", "\"Name\":false")));
     }
     @Test void errorsNeverPrintPrivatePropertiesOrExceptionText() throws Exception {
         properties.setProperty("password", "SYNTHETIC_SECRET_PASSWORD"); saveConfig();
