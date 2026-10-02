@@ -57,7 +57,7 @@ public final class TeamCommands {
                 case "settings" -> {core.check(player,"settings");core.menus.settings(player);}
                 case "tag","settag" -> {require(args,2);core.setting(player,"tag",args[1]);}
                 case "description","setdesc" -> {require(args,2);core.setting(player,"description",tail(args,1));}
-                case "rename" -> {require(args,2);core.setting(player,"name",args[1]);}
+                case "rename" -> {require(args,2);core.rename(player,args[1]);}
                 case "color","setcolor" -> {require(args,2);if(!Access.node(player,"justteams.setcolor",true))throw new TeamsCore.Refusal("DENIED");if(!args[1].matches("#[0-9a-fA-F]{6}|[a-z_]+"))throw new TeamsCore.Refusal("INVALID_COLOR");core.setting(player,"color",args[1]);}
                 case "public" -> {var team=core.requireTeam(player);core.setting(player,"is_public",!team.isPublic());}
                 case "glow" -> {var team=core.requireTeam(player);core.setting(player,"glow_enabled",!team.flag("glow_enabled"));}
@@ -78,8 +78,10 @@ public final class TeamCommands {
                 case "upgrades","upgrade" -> {core.check(player,"upgrade");core.menus.upgrades(player);}
                 case "requests" -> {core.check(player,"requests");core.elevated(player);core.menus.requests(player);}
                 case "invites" -> {core.check(player,"invites");core.menus.invites(player);}
-                case "ally","allies" -> {core.check(player,"ally");core.menus.allies(player);}
-                case "blacklist" -> {core.check(player,"blacklist");core.elevated(player);core.menus.blacklist(player);}
+                case "ally","allies" -> {if(args.length>=3)core.ally(player,args[1].toLowerCase(Locale.ROOT),args[2]);else{core.check(player,"ally");core.menus.allies(player);}}
+                case "blacklist" -> {if(args.length>=2)core.blacklist(player,args[1],tail(args,2),false);else{core.check(player,"blacklist");core.elevated(player);core.menus.blacklist(player);}}
+                case "unblacklist" -> {require(args,2);core.blacklist(player,args[1],null,true);}
+                case "setjoinfee" -> {require(args,2);core.setJoinFee(player,Double.parseDouble(args[1]));}
                 case "quests","quest" -> {core.check(player,"quests");core.menus.quests(player);}
                 case "info" -> {var team=args.length>1?core.store.teamNamed(args[1]).orElseThrow(()->new TeamsCore.Refusal("UNKNOWN_TEAM")):core.requireTeam(player);core.success(player,team.name()+" ["+team.tag()+"] members="+core.store.members(team.id()).size()+" bank="+Texts.money(team.balance())+" tier="+team.tier());}
                 case "help" -> core.success(player,"/team create|invite|accept|join|home|warp|bank|ec|chat|settings|top");

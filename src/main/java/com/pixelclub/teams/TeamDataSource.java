@@ -22,7 +22,7 @@ public final class TeamDataSource implements ConnectionFactory,AutoCloseable {
             pool.setPassword(settings.first("","storage.mysql.password","mysql.password"));
         } else if(type.equals("h2")) {
             Path path=settings.folder().resolve("data/teams-pxc").toAbsolutePath().normalize();
-            pool.setJdbcUrl("jdbc:h2:file:"+path+";MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_ON_EXIT=FALSE");
+            pool.setJdbcUrl("jdbc:h2:file:"+path+";MODE=MySQL;AUTO_SERVER=FALSE;DB_CLOSE_ON_EXIT=FALSE");
             pool.setDriverClassName("eu.kotori.justTeams.libs.h2.Driver");pool.setUsername("sa");pool.setPassword("");
         } else throw new IllegalArgumentException("unsupported team storage backend");
     }

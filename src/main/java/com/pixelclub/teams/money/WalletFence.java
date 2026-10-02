@@ -11,6 +11,7 @@ import java.util.concurrent.locks.ReentrantLock;
 public final class WalletFence {
     private record Key(UUID owner,boolean virtual){}
     public record IoHandle(Path relativeTarget,ReentrantLock lock){}
+    public record Ticket(Key key,CompletableFuture<Void> reservation,long sequence){}
     private static final Map<Key,Map<CompletableFuture<?>,Long>> pending=new HashMap<>();
     private static final Map<Key,Long> failures=new HashMap<>();
     private static final Map<Key,IoHandle> handles=new HashMap<>();
@@ -21,15 +22,15 @@ public final class WalletFence {
         Class<?> api=Class.forName("net.impactdev.impactor.api.economy.accounts.Account");
         return new Key((UUID)api.getMethod("owner").invoke(account),Boolean.TRUE.equals(api.getMethod("virtual").invoke(account)));
     }
-    public static void track(Object account,CompletableFuture<?> future) {
+    public static Ticket reserve(Object account) {
         try {
-            Key key=key(account);long seq=sequence.incrementAndGet();
-            synchronized(WalletFence.class){pending.computeIfAbsent(key,ignored->new IdentityHashMap<>()).put(future,seq);}
-            future.whenComplete((value,error)->{
-                synchronized(WalletFence.class){Map<CompletableFuture<?>,Long> saves=pending.get(key);if(saves!=null){saves.remove(future);if(saves.isEmpty())pending.remove(key);}if(error!=null)failures.merge(key,seq,Math::max);WalletFence.class.notifyAll();}
-            });
+            Key key=key(account);synchronized(WalletFence.class){long seq=sequence.incrementAndGet();CompletableFuture<Void> reservation=new CompletableFuture<>();pending.computeIfAbsent(key,ignored->new IdentityHashMap<>()).put(reservation,seq);return new Ticket(key,reservation,seq);}
         }catch(ReflectiveOperationException error){throw new IllegalStateException("wallet fence cannot identify account",error);}
     }
+    public static void bind(Ticket ticket,CompletableFuture<?> future){if(future==null)throw new IllegalStateException("wallet save returned no future");future.whenComplete((value,error)->finish(ticket,error));}
+    public static void fail(Ticket ticket,Throwable error){finish(ticket,error);}
+    private static synchronized void finish(Ticket ticket,Throwable error){Map<CompletableFuture<?>,Long> saves=pending.get(ticket.key());if(saves==null||saves.remove(ticket.reservation())==null)return;if(saves.isEmpty())pending.remove(ticket.key());if(error!=null)failures.merge(ticket.key(),ticket.sequence(),Math::max);WalletFence.class.notifyAll();}
+    public static void track(Object account,CompletableFuture<?> future){Ticket ticket=reserve(account);try{bind(ticket,future);}catch(RuntimeException error){fail(ticket,error);throw error;}}
     public static void capture(Object provider,Path relativeTarget,Object account) {
         try {
             Field field=provider.getClass().getDeclaredField("ioLocks");field.setAccessible(true);Object cache=field.get(provider);

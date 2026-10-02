@@ -49,7 +49,7 @@ public final class TeamsCore implements AutoCloseable {
         store.provisionAdditiveTables();
         bank=new BankService(store,new PackEconomy(FabricLoader.getInstance().getGameDir()),settings.folder().resolve("bank-intents.jsonl"),settings.number("team_bank.max_balance",-1));
         menus=new TeamMenus(this);chests=new TeamChests(this);
-        for(Operation pending:store.pendingOperations())store.freezeOperation(pending.opid(),"RESTART_PENDING_"+pending.phase());
+        for(Operation pending:store.pendingOperations())if(!(pending.kind().equals("CHEST")&&pending.phase().equals("ESCROW")))store.freezeOperation(pending.opid(),"RESTART_PENDING_"+pending.phase());
         chests.validateConvertedDonor();
         ready=true;
         for(ServerPlayer player:server.getPlayerList().getPlayers())joined(player);
@@ -59,6 +59,7 @@ public final class TeamsCore implements AutoCloseable {
     public synchronized void check(ServerPlayer player,String action)throws Exception {
         if(!ready)throw new Refusal("NOT_READY");
         if(!authenticated(player))throw new Refusal("LOGIN_REQUIRED");
+        if(chests.quarantined(player.getUUID(),store.teamOf(player.getUUID()).map(Team::id).orElse(0)))throw new Refusal("CHEST_RECOVERY_REQUIRED");
         if(!Access.command(player,action))throw new Refusal("DENIED");
         String feature=switch(action){case "bank"->"team_bank";case "home","sethome","delhome"->"team_home";case "warp","warps","setwarp","delwarp"->"team_warps";case "enderchest","ec"->"team_enderchest";case "chat","msg"->"team_chat";default->"team_"+action;};
         if(!settings.enabled(feature))throw new Refusal("FEATURE_DISABLED");
@@ -94,6 +95,7 @@ public final class TeamsCore implements AutoCloseable {
     public void safely(ServerPlayer player,Throwing task){try{task.run();}catch(Exception e){refuse(player,e);}}
     @FunctionalInterface public interface Throwing{void run()throws Exception;}
     public synchronized void joined(ServerPlayer player)throws Exception {
+        if(chests.actorQuarantined(player.getUUID())){player.connection.disconnect(Texts.of("justTeams inventory recovery required; inventory retained"));return;}
         store.updateRows("player_cache","player_uuid",player.getUUID(),Map.of("player_name",player.getGameProfile().getName(),"last_seen",new Timestamp(System.currentTimeMillis())));
         if(store.rows("player_cache","player_uuid",player.getUUID()).isEmpty())store.insertRow("player_cache",Map.of("player_uuid",player.getUUID(),"player_name",player.getGameProfile().getName()));
         refresh(player.getUUID());
@@ -114,8 +116,11 @@ public final class TeamsCore implements AutoCloseable {
     public String serverName(){return settings.first("survival","server-identifier","server_identifier");}
     public void ensureChanged(boolean changed){if(!changed)throw new Refusal("STATE_REFUSED");}
     public synchronized boolean paid(ServerPlayer player,String feature,boolean bankFirst,Callable<Boolean> action)throws Exception {
+        return paidAmount(player,settings.cost(feature),bankFirst,action);
+    }
+    public synchronized boolean paidAmount(ServerPlayer player,double cost,boolean bankFirst,Callable<Boolean> action)throws Exception {
         if(settings.itemCostEnabled())throw new Refusal("ITEM_COST_CONFIGURATION_REQUIRES_MIGRATION");
-        String op=UUID.randomUUID().toString();BankService.Result charge=bank.charge(op,player.getUUID(),settings.cost(feature),bankFirst);
+        String op=UUID.randomUUID().toString();BankService.Result charge=bank.charge(op,player.getUUID(),cost,bankFirst);
         if(!charge.success()){success(player,"&c"+charge.code()+ (charge.pending()?" op="+charge.opid():""));return false;}
         boolean changed;
         try{changed=action.call();}catch(Exception e){bank.unknownCharge(op,"FEATURE_EXECUTION_UNKNOWN");throw e;}
@@ -137,19 +142,23 @@ public final class TeamsCore implements AutoCloseable {
     }
     public synchronized void accept(ServerPlayer player,String name)throws Exception {
         check(player,"accept");Team team=store.teamNamed(name).orElseThrow(()->new Refusal("UNKNOWN_TEAM"));
-        ensureChanged(store.accept(player.getUUID(),team.id(),capacity(team)));refresh(player.getUUID());success(player,"&aJOINED "+team.name());menus.team(player);
+        checkAdmission(player,team);ensureChanged(paidAmount(player,joinFee(player,team),false,()->store.accept(player.getUUID(),team.id(),capacity(team))));refresh(player.getUUID());success(player,"&aJOINED "+team.name());menus.team(player);
     }
     public synchronized void join(ServerPlayer player,String name)throws Exception {
         check(player,"join");if(store.teamOf(player.getUUID()).isPresent())throw new Refusal("ALREADY_IN_TEAM");
         Team team=store.teamNamed(name).orElseThrow(()->new Refusal("UNKNOWN_TEAM"));
+        checkAdmission(player,team);
         if(!team.isPublic()) {
             String key="request:"+player.getUUID();long now=System.currentTimeMillis();if(cooldowns.getOrDefault(key,0L)>now)throw new Refusal("REQUEST_COOLDOWN");
             if(!store.rows("join_requests","player_uuid",player.getUUID()).stream().filter(row->((Number)row.get("team_id")).intValue()==team.id()).toList().isEmpty())throw new Refusal("ALREADY_REQUESTED");
             if(!store.rows("team_blacklist","player_uuid",player.getUUID()).stream().filter(row->((Number)row.get("team_id")).intValue()==team.id()).toList().isEmpty())throw new Refusal("BLACKLISTED");
             ensureChanged(store.insertRow("join_requests",Map.of("team_id",team.id(),"player_uuid",player.getUUID())));cooldowns.put(key,now+60000);success(player,"&aREQUEST_SENT");return;
         }
-        ensureChanged(store.joinPublic(player.getUUID(),team.id(),capacity(team)));refresh(player.getUUID());success(player,"&aJOINED "+team.name());menus.team(player);
+        ensureChanged(paidAmount(player,joinFee(player,team),false,()->store.joinPublic(player.getUUID(),team.id(),capacity(team))));refresh(player.getUUID());success(player,"&aJOINED "+team.name());menus.team(player);
     }
+    private void checkAdmission(ServerPlayer player,Team team)throws Exception{if(chests.quarantined(player.getUUID(),team.id())||store.isFrozen(team.id(),player.getUUID()))throw new Refusal("TEAM_RECOVERY_REQUIRED");if(store.teamOf(player.getUUID()).isPresent())throw new Refusal("ALREADY_IN_TEAM");if(store.members(team.id()).size()>=capacity(team))throw new Refusal("TEAM_FULL");if(store.rows("team_blacklist","player_uuid",player.getUUID()).stream().anyMatch(row->((Number)row.get("team_id")).intValue()==team.id()))throw new Refusal("BLACKLISTED");}
+    private double joinFee(ServerPlayer player,Team team){if(team.flag("join_fee_enabled"))return ((Number)team.field("join_fee_amount")).doubleValue();double fee=settings.cost("team_join");if(settings.bool("permission_based_join_fee.enabled",true))fee=Math.max(fee,Access.permissionMaximum(player,"justteams.joinfee.",settings.integer("permission_based_join_fee.max_fee",10000)));return fee;}
+    public synchronized void acceptRequest(ServerPlayer player,UUID target)throws Exception {check(player,"requests");elevated(player);Team team=requireTeam(player);ServerPlayer online=server.getPlayerList().getPlayer(target);if(online!=null){checkAdmission(online,team);ensureChanged(paidAmount(online,joinFee(online,team),false,()->store.acceptRequest(team.id(),player.getUUID(),target,capacity(team))));}else ensureChanged(store.acceptRequest(team.id(),player.getUUID(),target,capacity(team)));refresh(target);success(player,"&aREQUEST_ACCEPTED");}
     public synchronized void leave(ServerPlayer player)throws Exception{check(player,"leave");int team=requireTeam(player).id();chests.close(player);ensureChanged(store.leave(player.getUUID()));invalidate(player.getUUID());refreshTeam(team);success(player,"&aLEFT_TEAM");menus.team(player);}
     public synchronized void kick(ServerPlayer player,UUID target)throws Exception {
         check(player,"kick");Team team=requireTeam(player);Member victim=store.member(target).orElseThrow(()->new Refusal("NO_MEMBER"));
@@ -171,11 +180,31 @@ public final class TeamsCore implements AutoCloseable {
     public synchronized void transfer(ServerPlayer player,UUID target)throws Exception{check(player,"transfer");owner(player);Team team=requireTeam(player);chests.revokeTeam(team.id());ensureChanged(store.transferOwnership(team.id(),team.owner(),target));refreshTeam(team.id());success(player,"&aOWNER_UPDATED");menus.team(player);}
     public synchronized void disband(ServerPlayer player)throws Exception{check(player,"disband");owner(player);Team team=requireTeam(player);List<Member> before=store.members(team.id());chests.revokeTeam(team.id());ensureChanged(store.deleteTeam(team.id(),team.owner()));for(Member member:before)invalidate(member.uuid());success(player,"&aDISBANDED");menus.team(player);}
     public synchronized void setting(ServerPlayer player,String field,Object value)throws Exception {
-        check(player,"settings");elevated(player);Team team=requireTeam(player);
+        String action=switch(field){case "tag"->"tag";case "description"->"description";case "is_public"->"public";case "glow_enabled"->"glow";case "pvp_enabled"->"pvp";default->"settings";};
+        check(player,action);elevated(player);Team team=requireTeam(player);
+        if(field.equals("name")||field.equals("owner_uuid")||field.equals("balance")||field.equals("tier"))throw new Refusal("DEDICATED_ACTION_REQUIRED");
+        if(field.equals("pvp_enabled")){String key="pvp:"+team.id();long now=System.currentTimeMillis();if(!Access.bypass(player,"pvp.cooldown")&&cooldowns.getOrDefault(key,0L)>now)throw new Refusal("PVP_COOLDOWN");cooldowns.put(key,now+settings.integer("team_pvp.toggle_cooldown",300)*1000L);}
         if(field.equals("tag")&&(!value.toString().matches("[A-Za-z0-9_]+")||value.toString().length()>settings.integer("settings.max_tag_length",6)))throw new Refusal("INVALID_TAG");
         if(field.equals("description")&&value.toString().length()>settings.integer("settings.max_description_length",64))throw new Refusal("DESCRIPTION_TOO_LONG");
         ensureChanged(store.updateTeam(team.id(),team.owner(),Collections.singletonMap(field,value)));refreshTeam(team.id());success(player,"&aSETTING_UPDATED");
     }
+    public synchronized void rename(ServerPlayer player,String name)throws Exception {
+        check(player,"rename");owner(player);if(!Access.node(player,"justteams.rename",true)&&!Access.admin(player.createCommandSourceStack()))throw new Refusal("DENIED");
+        if(!name.matches("[A-Za-z0-9_]+")||name.length()<settings.integer("settings.min_name_length",3)||name.length()>settings.integer("settings.max_name_length",16))throw new Refusal("INVALID_NAME");Team team=requireTeam(player);long cooldown=settings.integer("settings.rename_cooldown",604800);
+        List<Map<String,Object>> history=store.rows("team_rename_cooldowns","team_id",team.id());if(!history.isEmpty()&&System.currentTimeMillis()<((Timestamp)history.getFirst().get("last_rename")).getTime()+cooldown*1000L)throw new Refusal("RENAME_COOLDOWN");
+        if(team.name().equals(name)||store.teamNamed(name).isPresent())throw new Refusal("NAME_UNAVAILABLE");
+        ensureChanged(paidAmount(player,settings.number("feature_costs.economy.rename",500),false,()->store.rename(team.id(),team.owner(),name,cooldown,System.currentTimeMillis())));refreshTeam(team.id());success(player,"&aRENAMED");
+    }
+    public synchronized void ally(ServerPlayer player,String action,String name)throws Exception {
+        check(player,"ally");elevated(player);Team team=requireTeam(player),other=store.teamNamed(name).orElseThrow(()->new Refusal("UNKNOWN_TEAM"));if(!settings.bool("team_allies.enabled",true))throw new Refusal("ALLIES_DISABLED");int max=settings.integer("team_allies.max_allies",10);
+        boolean changed=switch(action){case "request","add"->store.allyRequest(team.id(),other.id(),player.getUUID(),max);case "accept"->store.allyAccept(other.id(),team.id(),player.getUUID(),max);case "deny"->store.allyDeny(other.id(),team.id(),player.getUUID());case "remove"->store.allyRemove(team.id(),other.id(),player.getUUID());default->throw new Refusal("ALLY_USAGE");};ensureChanged(changed);success(player,"&aALLY_UPDATED");
+    }
+    public synchronized void blacklist(ServerPlayer player,String name,String reason,boolean remove)throws Exception {
+        check(player,remove?"unblacklist":"blacklist");elevated(player);Team team=requireTeam(player);UUID target=resolvePlayer(name);
+        if(remove)ensureChanged(store.deleteRows("team_blacklist",Map.of("team_id",team.id(),"player_uuid",target))>0);
+        else{if(server.getPlayerList().getPlayer(target)==null)throw new Refusal("PLAYER_OFFLINE");ensureChanged(store.blacklist(team.id(),player.getUUID(),player.getGameProfile().getName(),target,playerName(target),reason));}success(player,"&aBLACKLIST_UPDATED");
+    }
+    public synchronized void setJoinFee(ServerPlayer player,double fee)throws Exception{check(player,"setjoinfee");owner(player);double value=BankService.normalize(fee,true);Team team=requireTeam(player);ensureChanged(store.updateTeam(team.id(),team.owner(),Map.of("join_fee_enabled",value>0,"join_fee_amount",value)));success(player,"&aJOIN_FEE_UPDATED");}
     public synchronized void bank(ServerPlayer player,boolean deposit,double amount,String opid)throws Exception {
         check(player,"bank");Team team=requireTeam(player);if(!settings.bool("team_bank.enabled",true))throw new Refusal("BANK_DISABLED");
         BankService.Result result=bank.transfer(opid,player.getUUID(),deposit,amount,0,Access.bypass(player,"bank.withdraw"));
@@ -189,12 +218,12 @@ public final class TeamsCore implements AutoCloseable {
     public synchronized void setHome(ServerPlayer player,boolean delete)throws Exception {
         check(player,delete?"delhome":"sethome");flag(player,"can_set_home","home");Team team=requireTeam(player);
         if(delete)ensureChanged(store.updateTeam(team.id(),team.owner(),nullable("home_location",null,"home_server",null)));
-        else ensureChanged(paid(player,"sethome",true,()->store.updateTeam(team.id(),team.owner(),Map.of("home_location",serialize(player),"home_server",serverName()))));
+        else {String location=serialize(player);ensureChanged(paid(player,"sethome",true,()->store.updateTeam(team.id(),team.owner(),Map.of("home_location",location,"home_server",serverName()))));}
         refreshTeam(team.id());success(player,"&aHOME_UPDATED");
     }
     public synchronized void setWarp(ServerPlayer player,String name,String password)throws Exception {
         check(player,"setwarp");elevated(player);Team team=requireTeam(player);
-        ensureChanged(paid(player,"setwarp",true,()->store.setWarp(team.id(),name,serialize(player),serverName(),password,maxWarps(team))));success(player,"&aWARP_UPDATED");
+        String location=serialize(player);ensureChanged(paid(player,"setwarp",true,()->store.setWarp(team.id(),name,location,serverName(),password,maxWarps(team))));success(player,"&aWARP_UPDATED");
     }
     public synchronized void deleteWarp(ServerPlayer player,String name)throws Exception {check(player,"delwarp");Team team=requireTeam(player);if(!Access.elevated(requireMember(player))&&!name.equalsIgnoreCase(player.getGameProfile().getName()))throw new Refusal("DENIED");ensureChanged(store.deleteWarp(team.id(),name));success(player,"&aWARP_DELETED");}
     public synchronized void teleport(ServerPlayer player,String kind,String name,String password)throws Exception {
@@ -214,7 +243,7 @@ public final class TeamsCore implements AutoCloseable {
     public String worldName(ServerLevel level) {
         String id=level.dimension().location().toString();
         try {
-            Class<?> worlds=Class.forName("com.pixelclub.worlds.Worlds");Object config=worlds.getMethod("config").invoke(null);Object entry=config.getClass().getMethod("get",String.class).invoke(config,id);
+            Class<?> worlds=Class.forName("com.pixelclub.worlds.Worlds");Object config=worlds.getMethod("config").invoke(null);Object entry=config==null?null:config.getClass().getMethod("get",String.class).invoke(config,id);
             if(entry!=null){Object value=entry.getClass().getMethod("bukkitName").invoke(entry);if(value!=null&&!value.toString().isEmpty())return value.toString();}
             return (String)Class.forName("com.pixelclub.worlds.WorldNames").getMethod("defaultBukkitName",String.class).invoke(null,id);
         }catch(ReflectiveOperationException e){return switch(id){case "minecraft:overworld"->"world";case "minecraft:the_nether"->"world_nether";case "minecraft:the_end"->"world_the_end";default->id;};}
@@ -232,15 +261,16 @@ public final class TeamsCore implements AutoCloseable {
         check(player,"chat");Team team=requireTeam(player);if(message.isBlank()||message.length()>200)throw new Refusal("INVALID_MESSAGE");
         String lower=message.toLowerCase(Locale.ROOT);if(lower.contains("password")||lower.contains("/login")||lower.contains("/register"))throw new Refusal("PRIVATE_MESSAGE_REJECTED");
         String format=settings.message("team_chat_format","&8[&a<team_name>&8] &f<player>&7: <message>");
-        String rendered=format.replace("<team_name>",team.name()).replace("<team_tag>",team.tag()).replace("<team_color>",Objects.toString(team.field("color"),"")).replace("<player>",player.getGameProfile().getName()).replace("<message>",message).replace("<prefix>","").replace("<player_prefix>","").replace("<suffix>","").replace("<player_suffix>","");
+        Map<String,String> plain=Map.of("team_name",team.name(),"team_tag",team.tag(),"player",player.getGameProfile().getName(),"message",message);
+        Map<String,String> trusted=Map.of("team_color",Objects.toString(team.field("color"),""),"prefix","","player_prefix","","suffix","","player_suffix","");
         Set<UUID> members=new HashSet<>();for(Member member:store.members(team.id()))members.add(member.uuid());
-        Component component=Texts.of(rendered);for(ServerPlayer recipient:server.getPlayerList().getPlayers())if(members.contains(recipient.getUUID())||spies.contains(recipient.getUUID())&&Access.node(recipient,"justteams.chatspy",false))recipient.sendSystemMessage(component);
+        Component component=Texts.template(format,plain,trusted);for(ServerPlayer recipient:server.getPlayerList().getPlayers())if(members.contains(recipient.getUUID())||spies.contains(recipient.getUUID())&&Access.node(recipient,"justteams.chatspy",false))recipient.sendSystemMessage(component);
     }
     public synchronized void toggleChat(ServerPlayer player)throws Exception{check(player,"chat");requireTeam(player);if(!chatMode.remove(player.getUUID()))chatMode.add(player.getUUID());success(player,"&aCHAT="+chatMode.contains(player.getUUID()));}
     public synchronized void toggleSpy(ServerPlayer player)throws Exception{if(!Access.node(player,"justteams.chatspy",false))throw new Refusal("DENIED");if(!spies.remove(player.getUUID()))spies.add(player.getUUID());success(player,"&aCHATSPY="+spies.contains(player.getUUID()));}
     public synchronized boolean blockDamage(ServerPlayer attacker,ServerPlayer victim)throws Exception {
-        Team a=store.teamOf(attacker.getUUID()).orElse(null),b=store.teamOf(victim.getUUID()).orElse(null);if(a==null||b==null)return false;
-        boolean same=a.id()==b.id();boolean ally=store.rows("team_allies",null,null).stream().anyMatch(row->Math.min(a.id(),b.id())==((Number)row.get("team_id_1")).intValue()&&Math.max(a.id(),b.id())==((Number)row.get("team_id_2")).intValue());
+        if(attacker==victim)return false;Team a=store.teamOf(attacker.getUUID()).orElse(null),b=store.teamOf(victim.getUUID()).orElse(null);
+        boolean same=a!=null&&b!=null&&a.id()==b.id();boolean ally=a!=null&&b!=null&&store.rows("team_allies",null,null).stream().anyMatch(row->(a.id()==((Number)row.get("team_id_1")).intValue()&&b.id()==((Number)row.get("team_id_2")).intValue())||(b.id()==((Number)row.get("team_id_1")).intValue()&&a.id()==((Number)row.get("team_id_2")).intValue()));
         boolean deny=same&&!b.pvp()||ally;if(!deny&&settings.bool("team_pvp.disable_fly_on_combat",true)){disableFlight(attacker);disableFlight(victim);}return deny;
     }
     private void disableFlight(ServerPlayer player){if(player.isCreative()||player.isSpectator())return;player.getAbilities().flying=false;player.getAbilities().mayfly=false;player.onUpdateAbilities();}

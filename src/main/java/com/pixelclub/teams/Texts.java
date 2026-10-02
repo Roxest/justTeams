@@ -8,11 +8,19 @@ import net.minecraft.network.chat.TextColor;
 import net.minecraft.core.RegistryAccess;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
+import java.util.Map;
 import java.util.Locale;
 
 /** Legacy donor colours without enabling bold on Thai labels. */
 public final class Texts {
     private Texts(){}
+    public static Component template(String format,Map<String,String> plain,Map<String,String> trusted) {
+        var tags=TagResolver.builder();plain.forEach((key,value)->tags.resolver(Placeholder.unparsed(key,value)));trusted.forEach((key,value)->tags.resolver(Placeholder.component(key,MiniMessage.miniMessage().deserialize(legacyToMini(value)))));
+        String source=legacyToMini(format.replace("<bold>","").replace("</bold>","").replace("<b>","").replace("</b>",""));
+        String json=GsonComponentSerializer.gson().serialize(MiniMessage.miniMessage().deserialize(source,tags.build()));Component component=Component.Serializer.fromJson(json,RegistryAccess.EMPTY);return component==null?Component.literal(format):component;
+    }
     public static Component of(String input) {
         String text=input==null?"":input;
         if(text.indexOf('<')>=0) {

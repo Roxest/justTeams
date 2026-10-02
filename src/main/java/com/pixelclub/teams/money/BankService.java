@@ -42,7 +42,10 @@ public final class BankService {
             payload.addProperty("bankBefore",bankBefore);payload.addProperty("bankExpected",bankBefore-fromBank);
             payload.addProperty("fromBank",fromBank);payload.addProperty("fromPlayer",fromPlayer);
             payload.addProperty("effectApplied",false);
-            store.beginOperation(opid,teamId,player,"FEATURE_COST",cost,"PREPARED",payload.toString());append(opid,"PREPARED",payload);
+            String ownerNonce=UUID.randomUUID().toString();payload.addProperty("ownerNonce",ownerNonce);
+            Operation claimed=store.beginOperation(opid,teamId,player,"FEATURE_COST",cost,"PREPARED",payload.toString());
+            if(!JsonParser.parseString(claimed.payload()).getAsJsonObject().get("ownerNonce").getAsString().equals(ownerNonce))return refuse("COST_ALREADY_CLAIMED",opid);
+            append(opid,"PREPARED",payload);
             if(fromBank>0) {
                 TeamStore.BankResult result=store.mutateBank(opid+"_bank",teamId,player,-fromBank,cap,false,true);
                 if(!result.applied()) {store.updateOperation(opid,"CANCELLED",payload.toString());return refuse("BANK_COST_REFUSED",opid);}
@@ -115,7 +118,10 @@ public final class BankService {
             payload.addProperty("playerBefore",before);payload.addProperty("playerExpected",playerExpected);
             payload.addProperty("bankBefore",bankBefore);payload.addProperty("bankExpected",bankBefore+(deposit?amount:-amount));
             payload.addProperty("fee",fee);payload.addProperty("effectApplied",false);
-            store.beginOperation(opid,team.id(),player,deposit?"DEPOSIT":"WITHDRAW",amount,"PREPARED",payload.toString());
+            String ownerNonce=UUID.randomUUID().toString();payload.addProperty("ownerNonce",ownerNonce);
+            Operation claimed=store.beginOperation(opid,team.id(),player,deposit?"DEPOSIT":"WITHDRAW",amount,"PREPARED",payload.toString());
+            JsonObject claimPayload=JsonParser.parseString(claimed.payload()).getAsJsonObject();
+            if(!claimPayload.has("ownerNonce")||!claimPayload.get("ownerNonce").getAsString().equals(ownerNonce))return fromPrior(claimed);
             append(opid,"PREPARED",payload);
             if(deposit) {
                 store.updateOperation(opid,"PLAYER_INTENT",payload.toString());append(opid,"PLAYER_INTENT",payload);

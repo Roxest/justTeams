@@ -33,7 +33,9 @@ public final class Settings {
             throw new IOException("team_bank.max_balance must be explicitly positive");
     }
     @SuppressWarnings("unchecked") private static Map<String,Object> read(Path file) throws IOException {
-        LoaderOptions options = new LoaderOptions(); options.setAllowDuplicateKeys(false);
+        LoaderOptions options = new LoaderOptions();
+        // Donor message/layout bundles contain duplicate keys and use the final value. Connection config remains strict.
+        options.setAllowDuplicateKeys(!file.getFileName().toString().equals("config.yml"));
         options.setMaxAliasesForCollections(50); options.setCodePointLimit(4_000_000);
         try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
             Object value = new Yaml(new SafeConstructor(options)).load(reader);
