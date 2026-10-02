@@ -17,6 +17,7 @@ public final class TeamsMod implements ModInitializer {
     private static volatile String problem="starting";
     public static TeamsCore core(){return core;}
     public static String problem(){return problem;}
+    public static boolean bukkitApiPresent(){try{Class.forName("org.bukkit.Bukkit",false,TeamsMod.class.getClassLoader());return true;}catch(ClassNotFoundException e){return false;}}
     public static boolean bukkitServer(){try{return Class.forName("org.bukkit.Bukkit").getMethod("getServer").invoke(null)!=null;}catch(ClassNotFoundException e){return false;}catch(ReflectiveOperationException e){return true;}}
     public static boolean legacyEnabled(){
         try{Class<?> bukkit=Class.forName("org.bukkit.Bukkit"),plugin=Class.forName("org.bukkit.plugin.Plugin");if(bukkit.getMethod("getServer").invoke(null)==null)return false;Object manager=bukkit.getMethod("getPluginManager").invoke(null);Object[] plugins=(Object[])Class.forName("org.bukkit.plugin.PluginManager").getMethod("getPlugins").invoke(manager);for(Object value:plugins)if("justTeams".equalsIgnoreCase(plugin.getMethod("getName").invoke(value).toString())&&Boolean.TRUE.equals(plugin.getMethod("isEnabled").invoke(value)))return true;return false;}catch(ClassNotFoundException e){return false;}catch(ReflectiveOperationException|RuntimeException e){return true;}
@@ -24,10 +25,10 @@ public final class TeamsMod implements ModInitializer {
     @Override public void onInitialize() {
         Settings settings=new Settings(FabricLoader.getInstance().getConfigDir().resolve("JustTeams"));
         try{settings.load();}catch(Exception e){problem=e.getClass().getSimpleName();LOG.error("[pxc-teams] NOT READY: configuration rejected ({})",problem);}
-        CommandRegistrationCallback.EVENT.register((dispatcher,access,environment)->{if(!bukkitServer())TeamCommands.register(dispatcher,settings);});
+        CommandRegistrationCallback.EVENT.register((dispatcher,access,environment)->{if(!bukkitApiPresent())TeamCommands.register(dispatcher,settings);});
         ServerLifecycleEvents.SERVER_STARTED.register(server->{
             if(legacyEnabled()){problem="BukkitJustTeamsEnabled";LOG.info("[pxc-teams] DORMANT: Bukkit JustTeams is enabled");return;}
-            if(bukkitServer())TeamCommands.register(server.getCommands().getDispatcher(),settings);
+            if(bukkitApiPresent())TeamCommands.register(server.getCommands().getDispatcher(),settings);
             try{core=new TeamsCore(server,settings);problem="";LOG.info("[pxc-teams] native 2.5.5+pxc.1 ready: {}",core.status());}
             catch(Exception e){problem=e.getClass().getSimpleName();LOG.error("[pxc-teams] NOT READY: {}. No team mutations are exposed.",problem);}
         });

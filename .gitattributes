@@ -1,2 +1,6 @@
 gradlew text eol=lf
 *.bat text eol=crlf
+*.java text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.py text eol=lf
