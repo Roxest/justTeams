@@ -1,0 +1,613 @@
+package com.pixelclub.teams.store;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.sql.Timestamp;
+import java.sql.Types;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+
+/** JDBC-only storage. Each mutation holds the store monitor and commits one transaction. */
+public final class TeamStore {
+    private static final String OPERATIONS = "pxc_teams_operations";
+    private static final String CHESTS = "pxc_teams_chests";
+    private static final Set<String> FLAGS = Set.of("can_withdraw", "can_use_enderchest", "can_set_home", "can_use_home", "can_promote_to_co_owner", "can_edit_members", "can_edit_co_owners", "can_kick_members", "can_promote_members", "can_demote_members");
+    private static final Set<String> TEAM_UPDATES = Set.of("name", "tag", "home_location", "home_server", "pvp_enabled", "is_public", "glow_enabled", "color", "gradient_start", "gradient_end", "description", "kills", "deaths", "points", "join_fee_enabled", "join_fee_amount", "alias", "accept_requests");
+    private static final Set<String> GENERIC_WRITES = Set.of("team_allies", "team_ally_requests", "team_blacklist", "team_custom_data", "team_quest_progress", "team_homes", "team_rename_cooldowns", "join_requests", "player_cache", "server_aliases");
+    private static final Set<String> TERMINAL_PHASES = Set.of("DONE", "COMPLETED", "FAILED", "REJECTED", "CANCELLED", "CONSUMED", "INVITED", "IDENTITY");
+    private final ConnectionFactory factory;
+    private final String prefix;
+
+    public TeamStore(ConnectionFactory factory, String prefix) {
+        this.factory = Objects.requireNonNull(factory);
+        if (prefix == null || !prefix.matches("[A-Za-z0-9_]+")) throw new IllegalArgumentException("Unsafe table prefix");
+        this.prefix = prefix;
+    }
+
+    public record Operation(String opid, int teamId, UUID player, String kind, double amount,
+                            String phase, String payload, long createdAt, long updatedAt) {
+        public boolean effectApplied() { return Json.booleanValue(payload, "effectApplied"); }
+    }
+    public record BankResult(boolean applied, boolean duplicate, double balance, Operation operation, String reason) {}
+    public record Chest(int teamId, int formatVersion, String inventoryJson, String originalSha256,
+                        long generation, long updatedAt) {}
+
+    public Map<String, String> requiredSchema() {
+        Map<String, String> result = new LinkedHashMap<>();
+        DonorSchema.DEFINITIONS.forEach((suffix, definition) -> result.put(prefix + suffix, definition));
+        return Collections.unmodifiableMap(result);
+    }
+
+    /** Read-only validation of all 22 donor tables; no CREATE/ALTER fallback is permitted. */
+    public void validateSchema() throws SQLException {
+        try (Connection connection = factory.open()) {
+            for (var table : DonorSchema.COLUMNS.entrySet()) {
+                try (PreparedStatement statement = connection.prepareStatement("SELECT * FROM " + table(table.getKey()) + " WHERE 1=0"); ResultSet result = statement.executeQuery()) {
+                    ResultSetMetaData metadata = result.getMetaData();
+                    Map<String, Integer> found = new LinkedHashMap<>();
+                    for (int i = 1; i <= metadata.getColumnCount(); i++) found.put(metadata.getColumnLabel(i).toLowerCase(Locale.ROOT), i);
+                    for (var column : table.getValue().entrySet()) {
+                        Integer index = found.get(column.getKey());
+                        if (index == null || !compatible(column.getValue(), metadata.getColumnType(index)) || !wideEnough(column.getValue(), metadata.getPrecision(index))) {
+                            throw new SQLException("Donor schema mismatch: " + prefix + table.getKey() + "." + column.getKey() + " expected " + column.getValue());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Explicit provisioning stage only. Retains journal audit rows after a team is deleted. */
+    public synchronized void provisionAdditiveTables() throws SQLException {
+        try (Connection connection = factory.open(); Statement statement = connection.createStatement()) {
+            statement.execute("CREATE TABLE IF NOT EXISTS " + OPERATIONS + " (opid VARCHAR(192) PRIMARY KEY, team_id INT NOT NULL, player_uuid VARCHAR(36), kind VARCHAR(64) NOT NULL, amount DOUBLE NOT NULL, phase VARCHAR(32) NOT NULL, payload LONGTEXT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)");
+            statement.execute("CREATE TABLE IF NOT EXISTS " + CHESTS + " (team_id INT PRIMARY KEY, format_version INT NOT NULL, inventory_json LONGTEXT NOT NULL, original_sha256 VARCHAR(64), generation BIGINT NOT NULL, updated_at BIGINT NOT NULL, FOREIGN KEY(team_id) REFERENCES " + table("teams") + "(id) ON DELETE CASCADE)");
+        }
+    }
+
+    /** Creates donor templates only in H2 in-memory fixtures, never a production/import database. */
+    public synchronized void createFixtureSchema() throws SQLException {
+        try (Connection connection = factory.open(); Statement statement = connection.createStatement()) {
+            if (!connection.getMetaData().getURL().startsWith("jdbc:h2:mem:")) throw new SQLException("Fixture schema requires H2 in-memory database");
+            for (var definition : DonorSchema.DEFINITIONS.entrySet()) {
+                String suffix = definition.getKey();
+                String constraints = "";
+                if (!suffix.equals("teams") && DonorSchema.COLUMNS.get(suffix).containsKey("team_id")) {
+                    constraints += ", FOREIGN KEY(team_id) REFERENCES " + table("teams") + "(id) ON DELETE CASCADE";
+                }
+                if (suffix.equals("team_allies")) constraints += ", UNIQUE(team_id_1,team_id_2), FOREIGN KEY(team_id_1) REFERENCES " + table("teams") + "(id) ON DELETE CASCADE, FOREIGN KEY(team_id_2) REFERENCES " + table("teams") + "(id) ON DELETE CASCADE";
+                if (suffix.equals("team_ally_requests")) constraints += ", UNIQUE(sender_team_id,target_team_id), FOREIGN KEY(sender_team_id) REFERENCES " + table("teams") + "(id) ON DELETE CASCADE, FOREIGN KEY(target_team_id) REFERENCES " + table("teams") + "(id) ON DELETE CASCADE";
+                if (suffix.equals("team_warps")) constraints += ", UNIQUE(team_id,warp_name)";
+                if (Set.of("team_blacklist", "team_invites", "join_requests").contains(suffix)) constraints += ", UNIQUE(team_id,player_uuid)";
+                if (suffix.equals("team_custom_data")) constraints += ", PRIMARY KEY(team_id,data_key)";
+                if (suffix.equals("team_quest_progress")) constraints += ", PRIMARY KEY(team_id,quest_id)";
+                statement.execute("CREATE TABLE " + table(suffix) + " (" + definition.getValue() + constraints + ")");
+            }
+        }
+        provisionAdditiveTables();
+    }
+
+    public Optional<Team> team(int teamId) throws SQLException {
+        try (Connection connection = factory.open()) { return team(connection, teamId, false); }
+    }
+    public Optional<Team> teamOf(UUID player) throws SQLException {
+        try (Connection connection = factory.open()) {
+            return first(connection, "SELECT t.* FROM " + table("teams") + " t JOIN " + table("team_members") + " m ON m.team_id=t.id WHERE m.player_uuid=?", player).map(Team::new);
+        }
+    }
+    public Optional<Team> teamNamed(String name) throws SQLException {
+        try (Connection connection = factory.open()) {
+            return first(connection, "SELECT * FROM " + table("teams") + " WHERE LOWER(name)=LOWER(?)", name).map(Team::new);
+        }
+    }
+    public Optional<Member> member(UUID player) throws SQLException {
+        try (Connection connection = factory.open()) {
+            return first(connection, "SELECT m.*,c.player_name FROM " + table("team_members") + " m LEFT JOIN " + table("player_cache") + " c ON c.player_uuid=m.player_uuid WHERE m.player_uuid=?", player).map(Member::new);
+        }
+    }
+    public List<Member> members(int teamId) throws SQLException {
+        try (Connection connection = factory.open()) {
+            return query(connection, "SELECT m.*,c.player_name FROM " + table("team_members") + " m LEFT JOIN " + table("player_cache") + " c ON c.player_uuid=m.player_uuid WHERE m.team_id=? ORDER BY m.join_date,m.player_uuid", teamId).stream().map(Member::new).toList();
+        }
+    }
+    public List<Team> top(String category, int limit) throws SQLException {
+        if (!Set.of("balance", "kills", "deaths", "points", "tier").contains(category) || limit < 1 || limit > 1000) throw new IllegalArgumentException("Invalid ranking category/limit");
+        try (Connection connection = factory.open()) {
+            return query(connection, "SELECT * FROM " + table("teams") + " ORDER BY " + quote(category) + " DESC,id ASC LIMIT ?", limit).stream().map(Team::new).toList();
+        }
+    }
+    public List<Map<String, Object>> rows(String suffix, String whereColumn, Object value) throws SQLException {
+        checkSuffix(suffix);
+        if (whereColumn != null) checkColumn(suffix, whereColumn);
+        try (Connection connection = factory.open()) {
+            return whereColumn == null ? query(connection, "SELECT * FROM " + table(suffix)) : query(connection, "SELECT * FROM " + table(suffix) + " WHERE " + quote(whereColumn) + "=?", value);
+        }
+    }
+
+    public synchronized Team create(String name, String tag, UUID owner, String ownerName, String serverName) throws SQLException {
+        requireText(name, 128); requireText(tag, 255); requireText(ownerName, 16); requireText(serverName, 255);
+        return transaction(connection -> {
+            if (member(connection, owner, true).isPresent()) throw new SQLException("Owner is already a member");
+            if (identityExists(connection, "name", name, 0) || identityExists(connection, "tag", tag, 0)) throw new SQLException("Team name/tag already exists");
+            int id;
+            try (PreparedStatement statement = connection.prepareStatement("INSERT INTO " + table("teams") + " (name,tag,owner_uuid,home_server) VALUES (?,?,?,?)", Statement.RETURN_GENERATED_KEYS)) {
+                bind(statement, name, tag, owner, serverName);
+                statement.executeUpdate();
+                try (ResultSet keys = statement.getGeneratedKeys()) {
+                    if (!keys.next()) throw new SQLException("Missing generated team id");
+                    id = keys.getInt(1);
+                }
+            }
+            claimIdentity(connection, "tag", tag, id, owner);
+            Map<String, Object> values = new LinkedHashMap<>();
+            values.put("player_uuid", owner); values.put("team_id", id); values.put("role", "OWNER");
+            FLAGS.forEach(flag -> values.put(flag, true));
+            insert(connection, "team_members", values);
+            cachePlayer(connection, owner, ownerName);
+            return team(connection, id, false).orElseThrow(() -> new SQLException("Created team missing"));
+        });
+    }
+
+    public synchronized boolean invite(int teamId, UUID inviter, UUID target, long expiresEpochMillis) throws SQLException {
+        if (expiresEpochMillis <= System.currentTimeMillis()) return false;
+        return transaction(connection -> {
+            if (team(connection, teamId, true).isEmpty()) return false;
+            Optional<Member> source = member(connection, inviter, true);
+            if (source.isEmpty() || source.get().teamId() != teamId || member(connection, target, true).isPresent() || blacklisted(connection, teamId, target)) return false;
+            if (first(connection, "SELECT id FROM " + table("team_invites") + " WHERE team_id=? AND player_uuid=?", teamId, target).isPresent()) {
+                execute(connection, "UPDATE " + table("team_invites") + " SET inviter_uuid=?,created_at=CURRENT_TIMESTAMP WHERE team_id=? AND player_uuid=?", inviter, teamId, target);
+            } else insert(connection, "team_invites", Map.of("team_id", teamId, "player_uuid", target, "inviter_uuid", inviter));
+            String opid = inviteId(teamId, target);
+            String payload = Json.put("{}", "expiresEpochMillis", Long.toString(expiresEpochMillis));
+            Optional<Operation> existing = operation(connection, opid, true);
+            if (existing.isEmpty()) beginOperation(connection, opid, teamId, target, "INVITE", 0, "INVITED", payload);
+            else writeOperation(connection, existing.get(), "INVITED", payload);
+            return true;
+        });
+    }
+
+    public synchronized boolean accept(UUID target, int teamId, int maxMembers) throws SQLException {
+        if (maxMembers < 1) return false;
+        return transaction(connection -> {
+            if (team(connection, teamId, true).isEmpty() || member(connection, target, true).isPresent() || blacklisted(connection, teamId, target)) return false;
+            if (first(connection, "SELECT id FROM " + table("team_invites") + " WHERE team_id=? AND player_uuid=? FOR UPDATE", teamId, target).isEmpty()) return false;
+            Optional<Operation> invitation = operation(connection, inviteId(teamId, target), true);
+            if (invitation.isEmpty() || !invitation.get().phase().equals("INVITED") || Json.longValue(invitation.get().payload(), "expiresEpochMillis", 0) <= System.currentTimeMillis()) return false;
+            if (count(connection, "team_members", "team_id", teamId) >= maxMembers) return false;
+            insert(connection, "team_members", Map.of("player_uuid", target, "team_id", teamId, "role", "MEMBER"));
+            execute(connection, "DELETE FROM " + table("team_invites") + " WHERE player_uuid=?", target);
+            execute(connection, "DELETE FROM " + table("join_requests") + " WHERE player_uuid=?", target);
+            writeOperation(connection, invitation.get(), "CONSUMED", invitation.get().payload());
+            return true;
+        });
+    }
+
+    public synchronized boolean leave(UUID player) throws SQLException {
+        return transaction(connection -> {
+            Optional<Member> member = member(connection, player, false);
+            return member.isPresent() && removeMember(connection, member.get().teamId(), player);
+        });
+    }
+    public boolean kick(int teamId, UUID target) throws SQLException { return removeMember(teamId, target); }
+    public synchronized boolean removeMember(int teamId, UUID target) throws SQLException {
+        return transaction(connection -> removeMember(connection, teamId, target));
+    }
+    private boolean removeMember(Connection connection, int teamId, UUID target) throws SQLException {
+        Optional<Team> team = team(connection, teamId, true);
+        Optional<Member> member = member(connection, target, true);
+        if (team.isEmpty() || member.isEmpty() || member.get().teamId() != teamId || team.get().owner().equals(target) || member.get().owner()) return false;
+        if (isFrozen(connection, teamId, target)) return false;
+        return execute(connection, "DELETE FROM " + table("team_members") + " WHERE team_id=? AND player_uuid=? AND role<>?", teamId, target, "OWNER") == 1;
+    }
+
+    public synchronized boolean setMemberRoleAndFlags(int teamId, UUID target, String role, Map<String, Boolean> flags) throws SQLException {
+        if (!Set.of("OWNER", "CO_OWNER", "MEMBER").contains(role)) throw new IllegalArgumentException("Invalid member role");
+        checkFlags(flags);
+        return transaction(connection -> {
+            Optional<Team> team = team(connection, teamId, true);
+            Optional<Member> member = member(connection, target, true);
+            if (team.isEmpty() || member.isEmpty() || member.get().teamId() != teamId) return false;
+            if (team.get().owner().equals(target) != role.equals("OWNER") || member.get().owner() && !role.equals("OWNER")) return false;
+            Map<String, Object> values = new LinkedHashMap<>(flags);
+            values.put("role", role);
+            return update(connection, "team_members", Map.of("team_id", teamId, "player_uuid", target), values) == 1;
+        });
+    }
+    public synchronized boolean setMemberFlags(int teamId, UUID target, Map<String, Boolean> flags) throws SQLException {
+        checkFlags(flags);
+        return transaction(connection -> {
+            if (team(connection, teamId, true).isEmpty()) return false;
+            return update(connection, "team_members", Map.of("team_id", teamId, "player_uuid", target), new LinkedHashMap<>(flags)) == 1;
+        });
+    }
+
+    public synchronized boolean updateTeam(int teamId, UUID expectedOwner, Map<String, Object> values) throws SQLException {
+        if (values.isEmpty()) return false;
+        if (!TEAM_UPDATES.containsAll(values.keySet())) throw new IllegalArgumentException("Team column is not mutable through updateTeam");
+        if (values.containsKey("name")) requireText((String) values.get("name"), 128);
+        if (values.containsKey("tag")) requireText((String) values.get("tag"), 255);
+        return transaction(connection -> {
+            Optional<Team> old = team(connection, teamId, true);
+            if (old.isEmpty() || !old.get().owner().equals(expectedOwner)) return false;
+            for (String column : List.of("name", "tag")) {
+                if (values.containsKey(column) && identityExists(connection, column, values.get(column).toString(), teamId)) return false;
+            }
+            if (values.containsKey("tag")) {
+                claimIdentity(connection, "tag", values.get("tag").toString(), teamId, expectedOwner);
+                if (!canonical(old.get().tag()).equals(canonical(values.get("tag").toString()))) execute(connection, "DELETE FROM " + OPERATIONS + " WHERE opid=? AND kind=? AND team_id=?", identityId("tag", old.get().tag()), "IDENTITY", teamId);
+            }
+            return update(connection, "teams", Map.of("id", teamId, "owner_uuid", expectedOwner), values) == 1;
+        });
+    }
+
+    public synchronized boolean deleteTeam(int teamId, UUID expectedOwner) throws SQLException {
+        return transaction(connection -> {
+            Optional<Team> team = team(connection, teamId, true);
+            if (team.isEmpty() || !team.get().owner().equals(expectedOwner) || isFrozen(connection, teamId, expectedOwner)) return false;
+            // Explicit deletes also cover donor tables whose historical schema has no FK.
+            for (var entry : DonorSchema.COLUMNS.entrySet()) {
+                String suffix = entry.getKey();
+                if (entry.getValue().containsKey("team_id")) execute(connection, "DELETE FROM " + table(suffix) + " WHERE team_id=?", teamId);
+            }
+            execute(connection, "DELETE FROM " + table("team_allies") + " WHERE team_id_1=? OR team_id_2=?", teamId, teamId);
+            execute(connection, "DELETE FROM " + table("team_ally_requests") + " WHERE sender_team_id=? OR target_team_id=?", teamId, teamId);
+            execute(connection, "DELETE FROM " + CHESTS + " WHERE team_id=?", teamId);
+            execute(connection, "DELETE FROM " + OPERATIONS + " WHERE team_id=? AND kind=?", teamId, "IDENTITY");
+            execute(connection, "UPDATE " + OPERATIONS + " SET phase=?,updated_at=? WHERE team_id=? AND kind=?", "CANCELLED", System.currentTimeMillis(), teamId, "INVITE");
+            return execute(connection, "DELETE FROM " + table("teams") + " WHERE id=? AND owner_uuid=?", teamId, expectedOwner) == 1;
+        });
+    }
+
+    public synchronized boolean setWarp(int teamId, String name, String location, String serverName, String password, int maxWarps) throws SQLException {
+        requireText(name, 32); requireText(location, 255); requireText(serverName, 64);
+        if (password != null && password.length() > 64) throw new IllegalArgumentException("Warp password too long");
+        if (maxWarps < 1) return false;
+        return transaction(connection -> {
+            if (team(connection, teamId, true).isEmpty()) return false;
+            Optional<Map<String, Object>> old = first(connection, "SELECT * FROM " + table("team_warps") + " WHERE team_id=? AND LOWER(warp_name)=LOWER(?) FOR UPDATE", teamId, name);
+            if (old.isPresent()) {
+                // Preserve the donor server_name column and existing warp id.
+                return execute(connection, "UPDATE " + table("team_warps") + " SET location=?,server_name=?,password=? WHERE id=? AND team_id=?", location, serverName, password, old.get().get("id"), teamId) == 1;
+            }
+            if (count(connection, "team_warps", "team_id", teamId) >= maxWarps) return false;
+            Map<String, Object> values = new LinkedHashMap<>();
+            values.put("team_id", teamId); values.put("warp_name", name); values.put("location", location); values.put("server_name", serverName); values.put("password", password);
+            return insert(connection, "team_warps", values) == 1;
+        });
+    }
+    public synchronized boolean deleteWarp(int teamId, String name) throws SQLException {
+        return transaction(connection -> team(connection, teamId, true).isPresent() && execute(connection, "DELETE FROM " + table("team_warps") + " WHERE team_id=? AND LOWER(warp_name)=LOWER(?)", teamId, name) > 0);
+    }
+
+    public synchronized boolean upgrade(int teamId, int expectedTier, int newTier, double cost) throws SQLException {
+        if (!Double.isFinite(cost) || cost < 0 || expectedTier < 1 || newTier != expectedTier + 1) throw new IllegalArgumentException("Invalid upgrade");
+        return transaction(connection -> {
+            if (team(connection, teamId, true).isEmpty() || isFrozen(connection, teamId, null)) return false;
+            return execute(connection, "UPDATE " + table("teams") + " SET balance=balance-?,tier=? WHERE id=? AND tier=? AND balance>=?", cost, newTier, teamId, expectedTier, cost) == 1;
+        });
+    }
+
+    public synchronized BankResult mutateBank(String opid, int teamId, UUID player, double delta, double maxBalance, boolean requireWithdraw, boolean bypass) throws SQLException {
+        requireOpid(opid);
+        if (!Double.isFinite(delta) || delta == 0 || !Double.isFinite(maxBalance) || maxBalance < 0) throw new IllegalArgumentException("Invalid bank amount/cap");
+        Objects.requireNonNull(player);
+        return transaction(connection -> {
+            Optional<Team> team = team(connection, teamId, true);
+            Optional<Operation> previous = operation(connection, opid, true);
+            double balance = team.map(Team::balance).orElse(Double.NaN);
+            Operation operation;
+            if (previous.isPresent()) {
+                operation = previous.get();
+                checkOperationIdentity(operation, teamId, player, Math.abs(delta));
+                if (operation.effectApplied()) {
+                    if (Double.compare(Json.doubleValue(operation.payload(), "bankDelta", delta), delta) != 0) throw new SQLException("Operation id reused with opposite bank delta");
+                    return new BankResult(true, true, Json.doubleValue(operation.payload(), "bankBalanceAfter", balance), operation, "ALREADY_APPLIED");
+                }
+                if (TERMINAL_PHASES.contains(operation.phase()) || Set.of("FROZEN", "UNCERTAIN").contains(operation.phase())) return new BankResult(false, true, balance, operation, operation.phase());
+            } else operation = beginOperation(connection, opid, teamId, player, "BANK", Math.abs(delta), "PREPARED", "{}");
+            Optional<Member> member = member(connection, player, true);
+            String rejection = null;
+            if (team.isEmpty()) rejection = "NO_TEAM";
+            else if (isFrozen(connection, teamId, player)) rejection = "FROZEN";
+            else if (member.isEmpty() || member.get().teamId() != teamId) rejection = "NOT_MEMBER";
+            else if (requireWithdraw && !bypass && !member.get().flag("can_withdraw")) rejection = "WITHDRAW_DENIED";
+            else if (delta > 0 && balance + delta > maxBalance) rejection = "CAP";
+            else if (balance + delta < 0) rejection = "UNDERFLOW";
+            if (rejection != null) {
+                String payload = Json.put(operation.payload(), "rejection", Json.string(rejection));
+                Operation rejected = writeOperation(connection, operation, "REJECTED", payload);
+                return new BankResult(false, false, balance, rejected, rejection);
+            }
+            int changed = execute(connection, "UPDATE " + table("teams") + " SET balance=balance+? WHERE id=? AND balance+?>=0 AND (?<=0 OR balance+?<=?)", delta, teamId, delta, delta, delta, maxBalance);
+            if (changed != 1) throw new SQLException("Conditional bank update changed no row after locks");
+            double after = team(connection, teamId, false).orElseThrow(() -> new SQLException("Team vanished during bank update")).balance();
+            String payload = Json.put(operation.payload(), "bankBalanceBefore", Double.toString(balance));
+            payload = Json.put(payload, "bankBalanceAfter", Double.toString(after));
+            payload = Json.put(payload, "bankDelta", Double.toString(delta));
+            payload = Json.put(payload, "effectApplied", "true");
+            Operation applied = writeOperation(connection, operation, "TEAM_APPLIED", payload, true);
+            return new BankResult(true, false, after, applied, "APPLIED");
+        });
+    }
+
+    public synchronized Operation beginOperation(String opid, int teamId, UUID player, String kind, double amount, String phase, String payload) throws SQLException {
+        try {
+            return transaction(connection -> beginOperation(connection, opid, teamId, player, kind, amount, phase, payload));
+        } catch (SQLException failure) {
+            if (failure.getSQLState() == null || !Set.of("23505", "23000").contains(failure.getSQLState())) throw failure;
+            // A concurrent inserter may have committed this same primary key. Its record is truth.
+            Optional<Operation> existing = operation(opid);
+            if (existing.isEmpty()) throw failure;
+            checkOperationIdentity(existing.get(), teamId, player, amount);
+            if (!existing.get().kind().equals(kind)) throw failure;
+            return existing.get();
+        }
+    }
+    private Operation beginOperation(Connection connection, String opid, int teamId, UUID player, String kind, double amount, String phase, String payload) throws SQLException {
+        requireOpid(opid); requireText(kind, 64); requireText(phase, 32);
+        if (phase.equals("TEAM_APPLIED")) throw new SQLException("TEAM_APPLIED requires an atomic bank mutation");
+        if (!Double.isFinite(amount)) throw new IllegalArgumentException("Invalid operation amount");
+        Optional<Operation> existing = operation(connection, opid, true);
+        if (existing.isPresent()) {
+            checkOperationIdentity(existing.get(), teamId, player, amount);
+            if (!existing.get().kind().equals(kind)) throw new SQLException("Operation id reused with different kind");
+            return existing.get();
+        }
+        payload = Json.put(payload, "effectApplied", "false");
+        long now = System.currentTimeMillis();
+        execute(connection, "INSERT INTO " + OPERATIONS + " (opid,team_id,player_uuid,kind,amount,phase,payload,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)", opid, teamId, player, kind, amount, phase, payload, now, now);
+        return new Operation(opid, teamId, player, kind, amount, phase, payload, now, now);
+    }
+    public synchronized Operation updateOperation(String opid, String phase, String payload) throws SQLException {
+        requireText(phase, 32);
+        return transaction(connection -> writeOperation(connection, operation(connection, opid, true).orElseThrow(() -> new SQLException("Unknown operation")), phase, payload));
+    }
+    public Optional<Operation> operation(String opid) throws SQLException {
+        try (Connection connection = factory.open()) { return operation(connection, opid, false); }
+    }
+    public List<Operation> pendingOperations() throws SQLException {
+        try (Connection connection = factory.open()) {
+            return query(connection, "SELECT * FROM " + OPERATIONS + " WHERE kind<>? AND kind<>? ORDER BY created_at,opid", "INVITE", "IDENTITY").stream().map(TeamStore::operationRow).filter(operation -> !TERMINAL_PHASES.contains(operation.phase())).toList();
+        }
+    }
+    public boolean isFrozen(int teamId, UUID player) throws SQLException {
+        try (Connection connection = factory.open()) { return isFrozen(connection, teamId, player); }
+    }
+    public synchronized Operation freezeOperation(String opid, String reason) throws SQLException {
+        return transaction(connection -> {
+            Operation existing = operation(connection, opid, true).orElseThrow(() -> new SQLException("Unknown operation"));
+            return writeOperation(connection, existing, "FROZEN", Json.put(existing.payload(), "freezeReason", Json.string(reason)));
+        });
+    }
+
+    public Optional<Chest> chest(int teamId) throws SQLException {
+        try (Connection connection = factory.open()) { return chest(connection, teamId, false); }
+    }
+    public synchronized boolean saveChest(int teamId, int formatVersion, String inventoryJson, String originalSha256, long expectedGeneration) throws SQLException {
+        if (formatVersion < 1 || inventoryJson == null || expectedGeneration < 0 || originalSha256 != null && !originalSha256.matches("[a-fA-F0-9]{64}")) throw new IllegalArgumentException("Invalid chest data");
+        return transaction(connection -> {
+            if (team(connection, teamId, true).isEmpty()) return false;
+            Optional<Chest> existing = chest(connection, teamId, true);
+            if (existing.isEmpty()) {
+                if (expectedGeneration != 0) return false;
+                execute(connection, "INSERT INTO " + CHESTS + " (team_id,format_version,inventory_json,original_sha256,generation,updated_at) VALUES (?,?,?,?,?,?)", teamId, formatVersion, inventoryJson, originalSha256, 1L, System.currentTimeMillis());
+                return true;
+            }
+            if (existing.get().generation() != expectedGeneration) return false;
+            if (!Objects.equals(existing.get().originalSha256(), originalSha256)) throw new SQLException("Original chest hash cannot change");
+            return execute(connection, "UPDATE " + CHESTS + " SET format_version=?,inventory_json=?,generation=generation+1,updated_at=? WHERE team_id=? AND generation=?", formatVersion, inventoryJson, System.currentTimeMillis(), teamId, expectedGeneration) == 1;
+        });
+    }
+
+    public synchronized boolean insertRow(String suffix, Map<String, Object> values) throws SQLException {
+        checkGeneric(suffix, values);
+        return transaction(connection -> { lockRowTeams(connection, suffix, values); return insert(connection, suffix, values) == 1; });
+    }
+    public synchronized int updateRows(String suffix, Map<String, Object> where, Map<String, Object> values) throws SQLException {
+        checkGeneric(suffix, values); checkWhere(suffix, where);
+        return transaction(connection -> { lockRowTeams(connection, suffix, where); lockRowTeams(connection, suffix, values); return update(connection, suffix, where, values); });
+    }
+    public int updateRows(String suffix, String whereColumn, Object value, Map<String, Object> values) throws SQLException {
+        return updateRows(suffix, singleton(whereColumn, value), values);
+    }
+    public synchronized int deleteRows(String suffix, Map<String, Object> where) throws SQLException {
+        if (!GENERIC_WRITES.contains(suffix)) throw new IllegalArgumentException("Suffix is not mutable through generic API");
+        checkWhere(suffix, where);
+        return transaction(connection -> {
+            lockRowTeams(connection, suffix, where);
+            return execute(connection, "DELETE FROM " + table(suffix) + " WHERE " + predicates(where), where.values().toArray());
+        });
+    }
+    public int deleteRows(String suffix, String whereColumn, Object value) throws SQLException { return deleteRows(suffix, singleton(whereColumn, value)); }
+
+    private Optional<Team> team(Connection connection, int id, boolean lock) throws SQLException {
+        return first(connection, "SELECT * FROM " + table("teams") + " WHERE id=?" + (lock ? " FOR UPDATE" : ""), id).map(Team::new);
+    }
+    private Optional<Member> member(Connection connection, UUID player, boolean lock) throws SQLException {
+        return first(connection, "SELECT * FROM " + table("team_members") + " WHERE player_uuid=?" + (lock ? " FOR UPDATE" : ""), player).map(Member::new);
+    }
+    private boolean blacklisted(Connection connection, int teamId, UUID player) throws SQLException {
+        return first(connection, "SELECT id FROM " + table("team_blacklist") + " WHERE team_id=? AND player_uuid=?", teamId, player).isPresent();
+    }
+    private Optional<Operation> operation(Connection connection, String opid, boolean lock) throws SQLException {
+        return first(connection, "SELECT * FROM " + OPERATIONS + " WHERE opid=?" + (lock ? " FOR UPDATE" : ""), opid).map(TeamStore::operationRow);
+    }
+    private static Operation operationRow(Map<String, Object> row) {
+        String player = RowData.text(row.get("player_uuid"));
+        return new Operation(RowData.text(row.get("opid")), RowData.integer(row.get("team_id")), player == null ? null : UUID.fromString(player), RowData.text(row.get("kind")), RowData.decimal(row.get("amount")), RowData.text(row.get("phase")), RowData.text(row.get("payload")), ((Number) row.get("created_at")).longValue(), ((Number) row.get("updated_at")).longValue());
+    }
+    private Operation writeOperation(Connection connection, Operation old, String phase, String payload) throws SQLException {
+        if (phase.equals("TEAM_APPLIED") && !old.effectApplied()) throw new SQLException("TEAM_APPLIED requires an atomic bank mutation");
+        return writeOperation(connection, old, phase, payload, old.effectApplied());
+    }
+    private Operation writeOperation(Connection connection, Operation old, String phase, String payload, boolean effectApplied) throws SQLException {
+        requireText(phase, 32);
+        // Callers may add data or change phase, but cannot invent/reset a committed bank effect.
+        payload = Json.put(Json.merge(old.payload(), payload), "effectApplied", Boolean.toString(effectApplied));
+        if (old.effectApplied()) {
+            for (String field : List.of("bankBalanceBefore", "bankBalanceAfter", "bankDelta")) {
+                String original = Json.rawValue(old.payload(), field);
+                if (original != null) payload = Json.put(payload, field, original);
+            }
+        }
+        long now = System.currentTimeMillis();
+        if (execute(connection, "UPDATE " + OPERATIONS + " SET phase=?,payload=?,updated_at=? WHERE opid=?", phase, payload, now, old.opid()) != 1) throw new SQLException("Operation vanished");
+        return new Operation(old.opid(), old.teamId(), old.player(), old.kind(), old.amount(), phase, payload, old.createdAt(), now);
+    }
+    private boolean isFrozen(Connection connection, int teamId, UUID player) throws SQLException {
+        return first(connection, "SELECT opid FROM " + OPERATIONS + " WHERE (team_id=? OR player_uuid=?) AND phase IN (?,?) AND kind<>?", teamId, player, "FROZEN", "UNCERTAIN", "INVITE").isPresent();
+    }
+    private Optional<Chest> chest(Connection connection, int teamId, boolean lock) throws SQLException {
+        return first(connection, "SELECT * FROM " + CHESTS + " WHERE team_id=?" + (lock ? " FOR UPDATE" : ""), teamId).map(row -> new Chest(RowData.integer(row.get("team_id")), RowData.integer(row.get("format_version")), RowData.text(row.get("inventory_json")), RowData.text(row.get("original_sha256")), ((Number) row.get("generation")).longValue(), ((Number) row.get("updated_at")).longValue()));
+    }
+    private void checkOperationIdentity(Operation operation, int teamId, UUID player, double amount) throws SQLException {
+        if (operation.teamId() != teamId || !Objects.equals(operation.player(), player) || Double.compare(Math.abs(operation.amount()), Math.abs(amount)) != 0) throw new SQLException("Operation id reused with different transaction");
+    }
+    private boolean identityExists(Connection connection, String column, String value, int excludeId) throws SQLException {
+        return first(connection, "SELECT id FROM " + table("teams") + " WHERE LOWER(" + quote(column) + ")=LOWER(?) AND id<>? FOR UPDATE", value, excludeId).isPresent();
+    }
+    private void claimIdentity(Connection connection, String column, String value, int teamId, UUID owner) throws SQLException {
+        String id = identityId(column, value);
+        Optional<Operation> existing = operation(connection, id, true);
+        if (existing.isPresent()) {
+            if (existing.get().teamId() != teamId) throw new SQLException("Team tag already reserved");
+        } else beginOperation(connection, id, teamId, owner, "IDENTITY", 0, "IDENTITY", "{}");
+    }
+    private static String identityId(String column, String value) {
+        // Hash keeps arbitrarily long UTF-8 tags within the journal primary-key limit.
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(canonical(value).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return "identity:" + column + ":" + java.util.HexFormat.of().formatHex(digest);
+        } catch (java.security.NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
+    }
+    private static String canonical(String value) { return value.toLowerCase(Locale.ROOT); }
+    private static String inviteId(int teamId, UUID target) { return "invite:" + teamId + ":" + target; }
+    private void cachePlayer(Connection connection, UUID player, String name) throws SQLException {
+        if (first(connection, "SELECT player_uuid FROM " + table("player_cache") + " WHERE player_uuid=? FOR UPDATE", player).isPresent()) {
+            execute(connection, "UPDATE " + table("player_cache") + " SET player_name=?,last_seen=CURRENT_TIMESTAMP WHERE player_uuid=?", name, player);
+        } else insert(connection, "player_cache", Map.of("player_uuid", player, "player_name", name));
+    }
+    private long count(Connection connection, String suffix, String column, Object value) throws SQLException {
+        return ((Number) first(connection, "SELECT COUNT(*) AS row_count FROM " + table(suffix) + " WHERE " + quote(column) + "=?", value).orElseThrow().get("row_count")).longValue();
+    }
+    private void lockRowTeams(Connection connection, String suffix, Map<String, Object> values) throws SQLException {
+        for (String column : List.of("team_id", "team_id_1", "team_id_2", "sender_team_id", "target_team_id")) {
+            if (values.containsKey(column)) {
+                int id = ((Number) values.get(column)).intValue();
+                if (team(connection, id, true).isEmpty()) throw new SQLException("Missing team for " + suffix);
+            }
+        }
+    }
+    private int insert(Connection connection, String suffix, Map<String, Object> values) throws SQLException {
+        checkWhere(suffix, values);
+        String columns = String.join(",", values.keySet().stream().map(TeamStore::quote).toList());
+        String markers = String.join(",", Collections.nCopies(values.size(), "?"));
+        return execute(connection, "INSERT INTO " + table(suffix) + " (" + columns + ") VALUES (" + markers + ")", values.values().toArray());
+    }
+    private int update(Connection connection, String suffix, Map<String, Object> where, Map<String, Object> values) throws SQLException {
+        checkWhere(suffix, where); checkWhere(suffix, values);
+        List<Object> parameters = new ArrayList<>(values.values());
+        parameters.addAll(where.values());
+        return execute(connection, "UPDATE " + table(suffix) + " SET " + String.join(",", values.keySet().stream().map(column -> quote(column) + "=?").toList()) + " WHERE " + predicates(where), parameters.toArray());
+    }
+    private static String predicates(Map<String, Object> values) { return String.join(" AND ", values.keySet().stream().map(column -> quote(column) + "=?").toList()); }
+    private static Map<String, Object> singleton(String column, Object value) {
+        Map<String, Object> map = new LinkedHashMap<>(); map.put(column, value); return map;
+    }
+    private void checkGeneric(String suffix, Map<String, Object> values) {
+        if (!GENERIC_WRITES.contains(suffix)) throw new IllegalArgumentException("Suffix is not mutable through generic API");
+        checkWhere(suffix, values);
+        if (values.containsKey("id")) throw new IllegalArgumentException("Generic API cannot change generated ids");
+    }
+    private void checkWhere(String suffix, Map<String, ?> values) {
+        if (values.isEmpty()) throw new IllegalArgumentException("Empty SQL values/filter");
+        values.keySet().forEach(column -> checkColumn(suffix, column));
+    }
+    private static void checkFlags(Map<String, Boolean> flags) {
+        if (flags.isEmpty() || !FLAGS.containsAll(flags.keySet()) || flags.values().stream().anyMatch(Objects::isNull)) throw new IllegalArgumentException("Invalid member flags");
+    }
+    private void checkSuffix(String suffix) { if (!DonorSchema.COLUMNS.containsKey(suffix)) throw new IllegalArgumentException("Unknown donor table suffix"); }
+    private void checkColumn(String suffix, String column) {
+        checkSuffix(suffix);
+        if (!DonorSchema.COLUMNS.get(suffix).containsKey(column)) throw new IllegalArgumentException("Unknown donor column");
+    }
+    private String table(String suffix) { checkSuffix(suffix); return quote(prefix + suffix); }
+    private static String quote(String identifier) { return "`" + identifier + "`"; }
+    private static void requireText(String text, int maxLength) {
+        if (text == null || text.isBlank() || text.length() > maxLength) throw new IllegalArgumentException("Invalid text length");
+    }
+    private static void requireOpid(String opid) { requireText(opid, 192); }
+    private static boolean compatible(String expected, int actual) {
+        if (expected.startsWith("VARCHAR")) return Set.of(Types.VARCHAR, Types.NVARCHAR, Types.CHAR, Types.LONGVARCHAR).contains(actual);
+        if (expected.contains("TEXT")) return Set.of(Types.CLOB, Types.NCLOB, Types.VARCHAR, Types.LONGVARCHAR, Types.LONGNVARCHAR).contains(actual);
+        if (expected.equals("BOOLEAN")) return Set.of(Types.BOOLEAN, Types.BIT, Types.TINYINT).contains(actual);
+        if (expected.equals("INT")) return actual == Types.INTEGER;
+        if (expected.equals("BIGINT")) return actual == Types.BIGINT;
+        if (expected.equals("DOUBLE")) return actual == Types.DOUBLE || actual == Types.FLOAT;
+        if (expected.equals("TIMESTAMP")) return actual == Types.TIMESTAMP;
+        return false;
+    }
+    private static boolean wideEnough(String expected, int precision) {
+        if (!expected.startsWith("VARCHAR(")) return true;
+        int minimum = Integer.parseInt(expected.substring(8, expected.length() - 1));
+        return precision >= minimum;
+    }
+    private static void bind(PreparedStatement statement, Object... parameters) throws SQLException {
+        for (int i = 0; i < parameters.length; i++) {
+            Object value = parameters[i];
+            statement.setObject(i + 1, value instanceof UUID uuid ? uuid.toString() : value);
+        }
+    }
+    private static int execute(Connection connection, String sql, Object... parameters) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(sql)) { bind(statement, parameters); return statement.executeUpdate(); }
+    }
+    private static Optional<Map<String, Object>> first(Connection connection, String sql, Object... parameters) throws SQLException {
+        List<Map<String, Object>> rows = query(connection, sql, parameters);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.getFirst());
+    }
+    private static List<Map<String, Object>> query(Connection connection, String sql, Object... parameters) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            bind(statement, parameters);
+            try (ResultSet result = statement.executeQuery()) {
+                List<Map<String, Object>> rows = new ArrayList<>();
+                ResultSetMetaData metadata = result.getMetaData();
+                while (result.next()) {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    for (int i = 1; i <= metadata.getColumnCount(); i++) {
+                        Object value = result.getObject(i);
+                        if (value instanceof java.sql.Clob clob) value = clob.getSubString(1, Math.toIntExact(clob.length()));
+                        row.put(metadata.getColumnLabel(i).toLowerCase(Locale.ROOT), value);
+                    }
+                    rows.add(RowData.copy(row));
+                }
+                return List.copyOf(rows);
+            }
+        }
+    }
+    @FunctionalInterface private interface Transaction<T> { T run(Connection connection) throws SQLException; }
+    private <T> T transaction(Transaction<T> work) throws SQLException {
+        try (Connection connection = factory.open()) {
+            connection.setAutoCommit(false);
+            try {
+                T result = work.run(connection);
+                connection.commit();
+                return result;
+            } catch (SQLException | RuntimeException | Error failure) {
+                try { connection.rollback(); } catch (SQLException rollbackFailure) { failure.addSuppressed(rollbackFailure); }
+                throw failure;
+            }
+        }
+    }
+}
