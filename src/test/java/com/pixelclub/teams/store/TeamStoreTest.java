@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
 /** Every database is a new H2 memory fixture; there is no runtime configuration lookup. */
-class TeamStoreTest {
+public class TeamStoreTest {
     private ConnectionFactory factory;
     private TeamStore store;
     private UUID owner;
@@ -101,6 +101,138 @@ class TeamStoreTest {
         assertTrue(store.teamNamed("RejectedColor").isEmpty());
         assertTrue(store.member(rejectedOwner).isEmpty());
         assertEquals("red", store.create("RejectedColor", "RC", rejectedOwner, "GoodColorOwner", "fixture-server", "red").field("color"));
+    }
+
+    @Test void renameEnforcesOwnerUniquenessCooldownAndFrozenStateButAllowsOwnedChargeIntent() throws Exception {
+        UUID member = addMember(2);
+        store.create("Taken", "TK", UUID.randomUUID(), "OtherOwner", "fixture-server");
+        sql("UPDATE donut_teams SET balance=123.005 WHERE id=" + team.id());
+        long now = 1_000_000;
+        assertFalse(store.rename(team.id(), member, "Unauthorized", 60, now));
+        assertFalse(store.rename(team.id(), owner, "taken", 60, now));
+        assertTrue(store.rows("team_rename_cooldowns", "team_id", team.id()).isEmpty());
+        store.beginOperation("rename-charge", team.id(), owner, "FEATURE_COST", 10, "CHARGED", "{}");
+        assertTrue(store.rename(team.id(), owner, "Renamed", 60, now));
+        assertEquals(now, ((Timestamp) store.rows("team_rename_cooldowns", "team_id", team.id()).getFirst().get("last_rename")).getTime());
+        assertFalse(store.rename(team.id(), owner, "TooSoon", 60, now + 59_999));
+        assertTrue(store.rename(team.id(), owner, "Boundary", 60, now + 60_000));
+        assertEquals("Boundary", store.team(team.id()).orElseThrow().name());
+        assertEquals(Double.doubleToLongBits(123.005), Double.doubleToLongBits(store.team(team.id()).orElseThrow().balance()));
+        store.freezeOperation("rename-charge", "fixture unknown outcome");
+        assertFalse(store.rename(team.id(), owner, "FrozenDenied", 0, now + 120_000));
+        assertEquals("Boundary", store.team(team.id()).orElseThrow().name());
+    }
+
+    @Test void renameRollsBackNameWhenCooldownInsertOrUpdateFails() throws Exception {
+        Map<String, Object> before = store.team(team.id()).orElseThrow().fields();
+        sql("ALTER TABLE donut_team_rename_cooldowns ADD CONSTRAINT fixture_cooldown CHECK(team_id <> " + team.id() + ")");
+        assertThrows(SQLException.class, () -> store.rename(team.id(), owner, "InsertFails", 0, 100_000));
+        assertEquals(before, store.team(team.id()).orElseThrow().fields());
+        assertTrue(store.rows("team_rename_cooldowns", "team_id", team.id()).isEmpty());
+        sql("ALTER TABLE donut_team_rename_cooldowns DROP CONSTRAINT fixture_cooldown");
+        assertTrue(store.rename(team.id(), owner, "Inserted", 0, 100_000));
+        Map<String, Object> cooldown = store.rows("team_rename_cooldowns", "team_id", team.id()).getFirst();
+        sql("ALTER TABLE donut_team_rename_cooldowns ADD CONSTRAINT fixture_time CHECK(last_rename = TIMESTAMP '" + cooldown.get("last_rename") + "')");
+        Map<String, Object> inserted = store.team(team.id()).orElseThrow().fields();
+        assertThrows(SQLException.class, () -> store.rename(team.id(), owner, "UpdateFails", 0, 100_001));
+        assertEquals(inserted, store.team(team.id()).orElseThrow().fields());
+        assertEquals(cooldown, store.rows("team_rename_cooldowns", "team_id", team.id()).getFirst());
+    }
+
+    @Test void allyRequestsAcceptanceDenialAndRemovalEnforceRolesAndCanonicalPairs() throws Exception {
+        UUID otherOwner = UUID.randomUUID();
+        Team other = store.create("Other", "OT", otherOwner, "OtherOwner", "fixture-server");
+        UUID thirdOwner = UUID.randomUUID();
+        Team third = store.create("Third", "TH", thirdOwner, "ThirdOwner", "fixture-server");
+        UUID co = addMember(2);
+        assertFalse(store.allyRequest(team.id(), team.id(), owner, 1));
+        assertFalse(store.allyRequest(team.id(), 999, owner, 1));
+        assertFalse(store.allyRequest(team.id(), other.id(), co, 1));
+        assertFalse(store.allyRequest(team.id(), other.id(), otherOwner, 1));
+        assertTrue(store.allyRequest(other.id(), team.id(), otherOwner, 1));
+        assertFalse(store.allyRequest(other.id(), team.id(), otherOwner, 1));
+        var request = store.rows("team_ally_requests", "sender_team_id", other.id()).getFirst();
+        assertEquals(otherOwner.toString(), request.get("requester_uuid"));
+        assertFalse(store.allyAccept(other.id(), team.id(), otherOwner, 1));
+        assertFalse(store.allyAccept(other.id(), team.id(), co, 1));
+        assertTrue(store.setMemberRoleAndFlags(team.id(), co, "CO_OWNER", Map.of("can_withdraw", false)));
+        assertTrue(store.allyAccept(other.id(), team.id(), co, 1));
+        assertFalse(store.allyAccept(other.id(), team.id(), owner, 1));
+        var ally = store.rows("team_allies", null, null).getFirst();
+        assertEquals(team.id(), ((Number) ally.get("team_id_1")).intValue());
+        assertEquals(other.id(), ((Number) ally.get("team_id_2")).intValue());
+        assertEquals(1, store.rows("team_allies", null, null).size());
+        assertTrue(store.rows("team_ally_requests", "sender_team_id", other.id()).isEmpty());
+        assertFalse(store.allyRequest(other.id(), third.id(), otherOwner, 1));
+        assertTrue(store.allyRequest(third.id(), team.id(), thirdOwner, 1));
+        assertFalse(store.allyAccept(third.id(), team.id(), owner, 1));
+        assertFalse(store.allyDeny(third.id(), team.id(), thirdOwner));
+        assertTrue(store.allyDeny(third.id(), team.id(), co));
+        assertFalse(store.allyDeny(third.id(), team.id(), owner));
+        assertFalse(store.allyRemove(team.id(), other.id(), otherOwner));
+        assertTrue(store.allyRemove(team.id(), other.id(), co));
+        assertFalse(store.allyRemove(team.id(), other.id(), owner));
+        assertTrue(store.rows("team_allies", null, null).isEmpty());
+    }
+
+    @Test void allyAcceptanceChecksBothCapacitiesAndRollsBackItsInsertOnRequestDeleteFailure() throws Exception {
+        UUID otherOwner = UUID.randomUUID();
+        Team other = store.create("Other", "OT", otherOwner, "OtherOwner", "fixture-server");
+        UUID thirdOwner = UUID.randomUUID();
+        Team third = store.create("Third", "TH", thirdOwner, "ThirdOwner", "fixture-server");
+        store.insertRow("team_allies", Map.of("team_id_1", other.id(), "team_id_2", third.id()));
+        assertTrue(store.allyRequest(team.id(), other.id(), owner, 2));
+        assertFalse(store.allyAccept(team.id(), other.id(), otherOwner, 1));
+        assertEquals(1, store.rows("team_ally_requests", "sender_team_id", team.id()).size());
+        assertTrue(store.allyAccept(team.id(), other.id(), otherOwner, 2));
+        assertEquals(2, store.rows("team_allies", null, null).size());
+        UUID fourthOwner = UUID.randomUUID();
+        Team fourth = store.create("Fourth", "FO", fourthOwner, "FourthOwner", "fixture-server");
+        assertTrue(store.allyRequest(team.id(), fourth.id(), owner, 2));
+        assertFalse(store.allyAccept(team.id(), fourth.id(), fourthOwner, 1));
+        assertEquals(1, store.rows("team_ally_requests", "sender_team_id", team.id()).size());
+        assertTrue(store.allyDeny(team.id(), fourth.id(), fourthOwner));
+        assertTrue(store.allyRequest(fourth.id(), team.id(), fourthOwner, 2));
+        sql("CREATE TRIGGER fixture_ally_delete BEFORE DELETE ON donut_team_ally_requests FOR EACH ROW CALL 'com.pixelclub.teams.store.TeamStoreTest$RejectAllyRequestDelete'");
+        assertThrows(SQLException.class, () -> store.allyAccept(fourth.id(), team.id(), owner, 2));
+        assertEquals(2, store.rows("team_allies", null, null).size());
+        assertEquals(1, store.rows("team_ally_requests", "sender_team_id", fourth.id()).size());
+    }
+
+    @Test void blacklistUsesElevatedTeamScopeAndRetainsExactDonorIdentityColumns() throws Exception {
+        UUID member = addMember(2);
+        UUID target = UUID.randomUUID();
+        assertFalse(store.blacklist(team.id(), member, "Member", target, "Target", "fixture"));
+        assertFalse(store.blacklist(team.id(), UUID.randomUUID(), "Outsider", target, "Target", "fixture"));
+        assertFalse(store.blacklist(team.id(), owner, "TestOwner", owner, "TestOwner", "fixture"));
+        assertFalse(store.blacklist(team.id(), owner, "TestOwner", member, "Member", "fixture"));
+        assertTrue(store.setMemberRoleAndFlags(team.id(), member, "CO_OWNER", Map.of("can_withdraw", false)));
+        UUID otherOwner = UUID.randomUUID();
+        store.create("Other", "OT", otherOwner, "OtherOwner", "fixture-server");
+        assertTrue(store.blacklist(team.id(), member, "Member", otherOwner, "OtherOwner", "reason ' retained"));
+        assertFalse(store.blacklist(team.id(), owner, "TestOwner", otherOwner, "OtherOwner", "duplicate"));
+        var row = store.rows("team_blacklist", "team_id", team.id()).getFirst();
+        assertEquals(otherOwner.toString(), row.get("player_uuid")); assertEquals("OtherOwner", row.get("player_name"));
+        assertEquals(member.toString(), row.get("blacklisted_by_uuid")); assertEquals("Member", row.get("blacklisted_by_name"));
+        assertEquals("reason ' retained", row.get("reason")); assertNotNull(row.get("blacklisted_at"));
+        assertEquals(1, store.deleteRows("team_blacklist", Map.of("team_id", team.id(), "player_uuid", otherOwner)));
+    }
+
+    @Test void pointAdjustmentsUseOwnerCasRejectNegativeAndOverflowAndPreserveMoney() throws Exception {
+        Map<String, Object> opening = store.team(team.id()).orElseThrow().fields();
+        assertFalse(store.adjustPoints(team.id(), UUID.randomUUID(), 10));
+        assertFalse(store.adjustPoints(team.id(), owner, -1));
+        assertTrue(store.adjustPoints(team.id(), owner, 10));
+        assertTrue(store.adjustPoints(team.id(), owner, -4));
+        assertEquals(6L, store.team(team.id()).orElseThrow().field("points"));
+        Map<String, Object> expected = new LinkedHashMap<>(opening); expected.put("points", 6L);
+        assertEquals(expected, store.team(team.id()).orElseThrow().fields());
+        sql("UPDATE donut_teams SET points=" + Long.MAX_VALUE + " WHERE id=" + team.id());
+        assertFalse(store.adjustPoints(team.id(), owner, 1));
+        assertEquals(Long.MAX_VALUE, store.team(team.id()).orElseThrow().field("points"));
+        assertFalse(store.adjustPoints(team.id(), owner, Long.MIN_VALUE));
+        assertEquals(Long.MAX_VALUE, store.team(team.id()).orElseThrow().field("points"));
+        assertEquals(opening.get("balance"), store.team(team.id()).orElseThrow().field("balance"));
     }
 
     @Test void bankChecksCurrentMembershipWithdrawalFlagBypassCapAndUnderflow() throws Exception {
@@ -405,5 +537,11 @@ class TeamStoreTest {
     }
     private void sql(String fixtureSql) throws SQLException {
         try (Connection connection = factory.open(); Statement statement = connection.createStatement()) { statement.execute(fixtureSql); }
+    }
+    public static final class RejectAllyRequestDelete implements org.h2.api.Trigger {
+        @Override public void init(Connection connection, String schema, String trigger, String table, boolean before, int type) {}
+        @Override public void fire(Connection connection, Object[] oldRow, Object[] newRow) throws SQLException { throw new SQLException("Fixture request delete failure"); }
+        @Override public void close() {}
+        @Override public void remove() {}
     }
 }

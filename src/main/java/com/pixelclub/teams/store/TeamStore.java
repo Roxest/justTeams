@@ -320,6 +320,103 @@ public final class TeamStore {
         });
     }
 
+    public synchronized boolean rename(int teamId, UUID expectedOwner, String name, long cooldownSeconds, long nowMillis) throws SQLException {
+        requireText(name, 128);
+        if (cooldownSeconds < 0 || cooldownSeconds > Long.MAX_VALUE / 1000 || nowMillis < 0) throw new IllegalArgumentException("Invalid rename time/cooldown");
+        long cooldownMillis = cooldownSeconds * 1000;
+        return transaction(connection -> {
+            Optional<Team> team = team(connection, teamId, true);
+            if (team.isEmpty() || !team.get().owner().equals(expectedOwner) || team.get().name().equals(name) || isFrozen(connection, teamId, expectedOwner)) return false;
+            Optional<Map<String, Object>> cooldown = first(connection, "SELECT * FROM " + table("team_rename_cooldowns") + " WHERE team_id=? FOR UPDATE", teamId);
+            if (cooldown.isPresent()) {
+                long previous = ((Timestamp) cooldown.get().get("last_rename")).getTime();
+                long eligible;
+                try { eligible = Math.addExact(previous, cooldownMillis); } catch (ArithmeticException overflow) { return false; }
+                if (nowMillis < eligible) return false;
+            }
+            if (identityExists(connection, "name", name, teamId)) return false;
+            if (execute(connection, "UPDATE " + table("teams") + " SET name=? WHERE id=? AND owner_uuid=?", name, teamId, expectedOwner) != 1) throw new SQLException("Rename changed unexpected team rows");
+            if (cooldown.isPresent()) execute(connection, "UPDATE " + table("team_rename_cooldowns") + " SET last_rename=? WHERE team_id=?", new Timestamp(nowMillis), teamId);
+            else insert(connection, "team_rename_cooldowns", Map.of("team_id", teamId, "last_rename", new Timestamp(nowMillis)));
+            return true;
+        });
+    }
+
+    public synchronized boolean allyRequest(int sender, int target, UUID actor, int max) throws SQLException {
+        if (max < 1) return false;
+        return transaction(connection -> {
+            if (!lockTeamPair(connection, sender, target) || !elevated(connection, sender, actor) || allied(connection, sender, target) || allyCount(connection, sender) >= max) return false;
+            if (allyRequestRow(connection, sender, target).isPresent()) return false;
+            return insert(connection, "team_ally_requests", Map.of("sender_team_id", sender, "target_team_id", target, "requester_uuid", actor)) == 1;
+        });
+    }
+
+    public synchronized boolean allyAccept(int sender, int target, UUID actor, int max) throws SQLException {
+        if (max < 1) return false;
+        return transaction(connection -> {
+            if (!lockTeamPair(connection, sender, target) || !elevated(connection, target, actor) || allied(connection, sender, target) || allyCount(connection, sender) >= max || allyCount(connection, target) >= max) return false;
+            if (allyRequestRow(connection, sender, target).isEmpty()) return false;
+            int inserted = insert(connection, "team_allies", Map.of("team_id_1", Math.min(sender, target), "team_id_2", Math.max(sender, target)));
+            int deleted = execute(connection, "DELETE FROM " + table("team_ally_requests") + " WHERE sender_team_id=? AND target_team_id=?", sender, target);
+            if (inserted != 1 || deleted != 1) throw new SQLException("Ally acceptance changed unexpected rows");
+            return true;
+        });
+    }
+
+    public synchronized boolean allyDeny(int sender, int target, UUID actor) throws SQLException {
+        return transaction(connection -> lockTeamPair(connection, sender, target) && elevated(connection, target, actor) && execute(connection, "DELETE FROM " + table("team_ally_requests") + " WHERE sender_team_id=? AND target_team_id=?", sender, target) > 0);
+    }
+
+    public synchronized boolean allyRemove(int teamId, int other, UUID actor) throws SQLException {
+        return transaction(connection -> lockTeamPair(connection, teamId, other) && elevated(connection, teamId, actor) && execute(connection, "DELETE FROM " + table("team_allies") + " WHERE (team_id_1=? AND team_id_2=?) OR (team_id_1=? AND team_id_2=?)", teamId, other, other, teamId) > 0);
+    }
+
+    public synchronized boolean blacklist(int teamId, UUID actor, String actorName, UUID target, String targetName, String reason) throws SQLException {
+        requireText(actorName, 16); requireText(targetName, 16);
+        Objects.requireNonNull(actor); Objects.requireNonNull(target);
+        return transaction(connection -> {
+            if (team(connection, teamId, true).isEmpty() || !elevated(connection, teamId, actor) || actor.equals(target)) return false;
+            Optional<Member> member = member(connection, target, true);
+            if ((member.isPresent() && member.get().teamId() == teamId) || blacklisted(connection, teamId, target)) return false;
+            Map<String, Object> values = new LinkedHashMap<>();
+            values.put("team_id", teamId); values.put("player_uuid", target); values.put("player_name", targetName); values.put("reason", reason); values.put("blacklisted_by_uuid", actor); values.put("blacklisted_by_name", actorName);
+            return insert(connection, "team_blacklist", values) == 1;
+        });
+    }
+
+    public synchronized boolean adjustPoints(int teamId, UUID expectedOwner, long delta) throws SQLException {
+        return transaction(connection -> {
+            Optional<Team> team = team(connection, teamId, true);
+            if (team.isEmpty() || !team.get().owner().equals(expectedOwner)) return false;
+            Object points = team.get().field("points");
+            long current = points == null ? 0 : ((Number) points).longValue();
+            long changed;
+            try { changed = Math.addExact(current, delta); } catch (ArithmeticException overflow) { return false; }
+            if (changed < 0) return false;
+            return execute(connection, "UPDATE " + table("teams") + " SET points=? WHERE id=? AND owner_uuid=? AND COALESCE(points,0)=?", changed, teamId, expectedOwner, current) == 1;
+        });
+    }
+
+    private boolean lockTeamPair(Connection connection, int first, int second) throws SQLException {
+        if (first < 1 || second < 1 || first == second) return false;
+        Optional<Team> smaller = team(connection, Math.min(first, second), true);
+        Optional<Team> larger = team(connection, Math.max(first, second), true);
+        return smaller.isPresent() && larger.isPresent();
+    }
+    private boolean elevated(Connection connection, int teamId, UUID actor) throws SQLException {
+        Optional<Member> member = member(connection, actor, true);
+        return member.isPresent() && member.get().teamId() == teamId && Set.of("OWNER", "CO_OWNER").contains(member.get().role());
+    }
+    private boolean allied(Connection connection, int first, int second) throws SQLException {
+        return first(connection, "SELECT id FROM " + table("team_allies") + " WHERE (team_id_1=? AND team_id_2=?) OR (team_id_1=? AND team_id_2=?) FOR UPDATE", first, second, second, first).isPresent();
+    }
+    private long allyCount(Connection connection, int teamId) throws SQLException {
+        return ((Number) first(connection, "SELECT COUNT(*) AS row_count FROM " + table("team_allies") + " WHERE team_id_1=? OR team_id_2=?", teamId, teamId).orElseThrow().get("row_count")).longValue();
+    }
+    private Optional<Map<String, Object>> allyRequestRow(Connection connection, int sender, int target) throws SQLException {
+        return first(connection, "SELECT * FROM " + table("team_ally_requests") + " WHERE sender_team_id=? AND target_team_id=? FOR UPDATE", sender, target);
+    }
+
     public synchronized boolean deleteTeam(int teamId, UUID expectedOwner) throws SQLException {
         return transaction(connection -> {
             Optional<Team> team = team(connection, teamId, true);
