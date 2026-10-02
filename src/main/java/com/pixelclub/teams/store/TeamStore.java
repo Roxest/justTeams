@@ -46,6 +46,7 @@ public final class TeamStore {
     public record Chest(int teamId, int formatVersion, String inventoryJson, String originalSha256,
                         long generation, long updatedAt) {}
     public record ChestSeed(int teamId, int formatVersion, String inventoryJson, String originalSha256) {}
+    public static final class CreateConflict extends SQLException {public CreateConflict(){super("Team creation conflict");}}
 
     public Map<String, String> requiredSchema() {
         Map<String, String> result = new LinkedHashMap<>();
@@ -149,8 +150,8 @@ public final class TeamStore {
         requireText(name, 128); requireText(tag, 255); requireText(ownerName, 16); requireText(serverName, 255);
         if (color != null && color.length() > 32) throw new IllegalArgumentException("Team color is too long");
         return transaction(connection -> {
-            if (member(connection, owner, true).isPresent()) throw new SQLException("Owner is already a member");
-            if (identityExists(connection, "name", name, 0) || identityExists(connection, "tag", tag, 0)) throw new SQLException("Team name/tag already exists");
+            if (member(connection, owner, true).isPresent()) throw new CreateConflict();
+            if (identityExists(connection, "name", name, 0) || identityExists(connection, "tag", tag, 0)) throw new CreateConflict();
             int id;
             try (PreparedStatement statement = connection.prepareStatement("INSERT INTO " + table("teams") + " (name,tag,owner_uuid,home_server,color) VALUES (?,?,?,?,?)", Statement.RETURN_GENERATED_KEYS)) {
                 bind(statement, name, tag, owner, serverName, color);
