@@ -63,6 +63,46 @@ class TeamStoreTest {
         assertThrows(IllegalArgumentException.class, () -> store.rows("teams;DROP", "id", 1));
     }
 
+    @Test void memberRankingCountsCurrentRowsAndPreservesDonorFields() throws Exception {
+        addMember(3); addMember(3);
+        Team other = store.create("Other", "OT", UUID.randomUUID(), "OtherOwner", "other-server");
+        var ranked = store.top("members", 2);
+        assertEquals(java.util.List.of(team.id(), other.id()), ranked.stream().map(Team::id).toList());
+        assertEquals(3, ((Number) ranked.get(0).field("member_count")).intValue());
+        assertEquals(1, ((Number) ranked.get(1).field("member_count")).intValue());
+        assertEquals("original-server", ranked.getFirst().field("home_server"));
+        assertEquals(1, store.top("members", 1).size());
+        assertTrue(store.leave(store.members(team.id()).stream().filter(member -> !member.owner()).findFirst().orElseThrow().uuid()));
+        assertEquals(2, ((Number) store.top("members", 1).getFirst().field("member_count")).intValue());
+    }
+
+    @Test void teamZeroFreezeOnlyAppliesToItsActor() throws Exception {
+        UUID frozenActor = UUID.randomUUID();
+        UUID unrelatedCreator = UUID.randomUUID();
+        store.beginOperation("actor-only", 0, frozenActor, "FEATURE_COST", 1, "PREPARED", "{}");
+        store.freezeOperation("actor-only", "fixture uncertainty");
+        assertTrue(store.isFrozen(0, frozenActor));
+        assertFalse(store.isFrozen(0, unrelatedCreator));
+        assertFalse(store.isFrozen(0, null));
+        assertFalse(store.isFrozen(team.id(), owner));
+        Team created = store.create("Unrelated", "UR", unrelatedCreator, "NewCreator", "fixture-server");
+        assertEquals(unrelatedCreator, created.owner());
+        assertTrue(store.deleteTeam(created.id(), unrelatedCreator));
+        assertTrue(store.deleteTeam(team.id(), owner));
+    }
+
+    @Test void createSetsColorInItsInsertAndRollsBackAColorFailure() throws Exception {
+        assertNull(team.field("color"));
+        Team colored = store.create("Colored", "CL", UUID.randomUUID(), "ColorOwner", "fixture-server", "blue");
+        assertEquals("blue", colored.field("color"));
+        sql("ALTER TABLE donut_teams ADD CONSTRAINT fixture_color CHECK(color <> 'forbidden')");
+        UUID rejectedOwner = UUID.randomUUID();
+        assertThrows(SQLException.class, () -> store.create("RejectedColor", "RC", rejectedOwner, "BadColorOwner", "fixture-server", "forbidden"));
+        assertTrue(store.teamNamed("RejectedColor").isEmpty());
+        assertTrue(store.member(rejectedOwner).isEmpty());
+        assertEquals("red", store.create("RejectedColor", "RC", rejectedOwner, "GoodColorOwner", "fixture-server", "red").field("color"));
+    }
+
     @Test void bankChecksCurrentMembershipWithdrawalFlagBypassCapAndUnderflow() throws Exception {
         UUID member = addMember(2);
         assertTrue(store.mutateBank("fund", team.id(), owner, 100, 100, false, false).applied());

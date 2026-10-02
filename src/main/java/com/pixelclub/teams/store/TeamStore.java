@@ -125,8 +125,11 @@ public final class TeamStore {
         }
     }
     public List<Team> top(String category, int limit) throws SQLException {
-        if (!Set.of("balance", "kills", "deaths", "points", "tier").contains(category) || limit < 1 || limit > 1000) throw new IllegalArgumentException("Invalid ranking category/limit");
+        if (!Set.of("balance", "kills", "deaths", "points", "tier", "members").contains(category) || limit < 1 || limit > 1000) throw new IllegalArgumentException("Invalid ranking category/limit");
         try (Connection connection = factory.open()) {
+            if (category.equals("members")) {
+                return query(connection, "SELECT t.*,(SELECT COUNT(*) FROM " + table("team_members") + " m WHERE m.team_id=t.id) AS member_count FROM " + table("teams") + " t ORDER BY member_count DESC,t.id ASC LIMIT ?", limit).stream().map(Team::new).toList();
+            }
             return query(connection, "SELECT * FROM " + table("teams") + " ORDER BY " + quote(category) + " DESC,id ASC LIMIT ?", limit).stream().map(Team::new).toList();
         }
     }
@@ -139,13 +142,17 @@ public final class TeamStore {
     }
 
     public synchronized Team create(String name, String tag, UUID owner, String ownerName, String serverName) throws SQLException {
+        return create(name, tag, owner, ownerName, serverName, null);
+    }
+    public synchronized Team create(String name, String tag, UUID owner, String ownerName, String serverName, String color) throws SQLException {
         requireText(name, 128); requireText(tag, 255); requireText(ownerName, 16); requireText(serverName, 255);
+        if (color != null && color.length() > 32) throw new IllegalArgumentException("Team color is too long");
         return transaction(connection -> {
             if (member(connection, owner, true).isPresent()) throw new SQLException("Owner is already a member");
             if (identityExists(connection, "name", name, 0) || identityExists(connection, "tag", tag, 0)) throw new SQLException("Team name/tag already exists");
             int id;
-            try (PreparedStatement statement = connection.prepareStatement("INSERT INTO " + table("teams") + " (name,tag,owner_uuid,home_server) VALUES (?,?,?,?)", Statement.RETURN_GENERATED_KEYS)) {
-                bind(statement, name, tag, owner, serverName);
+            try (PreparedStatement statement = connection.prepareStatement("INSERT INTO " + table("teams") + " (name,tag,owner_uuid,home_server,color) VALUES (?,?,?,?,?)", Statement.RETURN_GENERATED_KEYS)) {
+                bind(statement, name, tag, owner, serverName, color);
                 statement.executeUpdate();
                 try (ResultSet keys = statement.getGeneratedKeys()) {
                     if (!keys.next()) throw new SQLException("Missing generated team id");
@@ -531,10 +538,10 @@ public final class TeamStore {
         return new Operation(old.opid(), old.teamId(), old.player(), old.kind(), old.amount(), phase, payload, old.createdAt(), now);
     }
     private boolean isFrozen(Connection connection, int teamId, UUID player) throws SQLException {
-        return first(connection, "SELECT opid FROM " + OPERATIONS + " WHERE (team_id=? OR player_uuid=?) AND phase IN (?,?) AND kind<>?", teamId, player, "FROZEN", "UNCERTAIN", "INVITE").isPresent();
+        return first(connection, "SELECT opid FROM " + OPERATIONS + " WHERE ((team_id=? AND team_id>0) OR player_uuid=?) AND phase IN (?,?) AND kind<>?", teamId, player, "FROZEN", "UNCERTAIN", "INVITE").isPresent();
     }
     private boolean hasUnsettledFinancialOperation(Connection connection, int teamId, UUID player) throws SQLException {
-        return query(connection, "SELECT kind,phase FROM " + OPERATIONS + " WHERE team_id=? OR player_uuid=?", teamId, player).stream()
+        return query(connection, "SELECT kind,phase FROM " + OPERATIONS + " WHERE (team_id=? AND team_id>0) OR player_uuid=?", teamId, player).stream()
                 .anyMatch(row -> FINANCIAL_KINDS.contains(RowData.text(row.get("kind"))) && !FINANCIAL_TERMINAL_PHASES.contains(RowData.text(row.get("phase"))));
     }
     private Optional<Chest> chest(Connection connection, int teamId, boolean lock) throws SQLException {
