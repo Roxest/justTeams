@@ -197,7 +197,7 @@ final class BukkitChestBridge {
             for (Map.Entry<?, ?> entry : map.entrySet()) {
                 if (!(entry.getKey() instanceof String key)) throw new IllegalArgumentException("Non-string raw Bukkit key");
                 Object child = entry.getValue();
-                if (key.equals("internal") && "ItemMeta".equals(map.get("==")) && child instanceof String encoded) {
+                if (Set.of("internal", "custom", "unhandled").contains(key) && "ItemMeta".equals(map.get("==")) && child instanceof String encoded) {
                     byte[] compressed = Base64.getMimeDecoder().decode(encoded);
                     if (compressed.length >= 2 && compressed[0] == (byte) 0x1f && compressed[1] == (byte) 0x8b) {
                         result.addProperty(key, NbtIo.readCompressed(new ByteArrayInputStream(compressed),

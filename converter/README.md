@@ -8,6 +8,7 @@ The runtime requires all three: JVM `-Dpixelclub.chestConverter.isolated=true`, 
 binding `127.0.0.1`/`::1`, and a `.justteams-chest-isolated` file in the rig root. Commands
 are console-only and require level 4. Existing output is refused. Any row/slot/class/item/
 component/size/semantic error aborts the entire batch before an atomic output is installed.
+Native format 1 requires its envelope checksum; all converter-produced inventories include it.
 
 ## Inputs and outputs
 
@@ -29,8 +30,13 @@ must reproduce the complete source JSON record, and exact typed state is compare
 No representation is used when the other fails; differing transient components also abort.
 The component hash covers every effective persistent component, including item defaults, so a
 target registry with changed default item properties aborts rather than silently changing them.
-output `native-output.json` includes original hash, inventory JSON, every slot's full item
+The output `native-output.json` includes original hash, inventory JSON, every slot's full item
 JSON/hash, and a freshly rebuilt reverse donor blob/hash. Original raw exports stay separate.
+The Java Wrapper maps are also compared before and after Bukkit deserialize/reserialize,
+catching unknown enchantments/meta fields silently discarded before native conversion.
+Known CraftMetaItem `internal/custom/unhandled` fields contain Base64 gzip NBT; their typed
+decompressed trees are compared, preserving every key, number width, array and opaque PDC.
+Other wrapper fields remain strict. This avoids treating gzip byte order as metadata loss.
 
 `chest-conversion/native-input.json`:
 

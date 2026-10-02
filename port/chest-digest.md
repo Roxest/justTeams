@@ -47,15 +47,23 @@ potion, nested shulker, count 99, Cobblemon/backpack items. Live donor n=79 rows
 2,376 top-level slots/584 nonempty; forward and reverse passed 2026-10-03 00:36/00:41
 ICT. Separate reverse n=80 includes one new fixture; original 79 slot manifests exact.
 Pure Fabric n=80 passed 00:46:58 ICT; item registry hash equal, effective default/
-component hashes and every per-slot payload exact. The stricter raw Wrapper audit
-currently holds the batch at team 21 slot 6 (serialized-field mismatch during
-Bukkit deserialize/reserialize); diagnosis pending, audited outputs absent. Prior
-rehearsal outputs are retained as `*-pre-raw-audit.json`. No GUI seen claim, no live
-import, no cold snapshot or PRD cutover.
+component hashes and every per-slot payload exact. Final raw Wrapper audit passed
+forward n=79 at 01:25:51 and separate reverse n=80 at 01:25:52 ICT. Known CraftMetaItem
+Base64 gzip NBT fields `internal/custom/unhandled` compare typed decompressed SNBT
+(primary baseline bytecode confirms NbtIo.writeCompressed), so compression byte order
+never masks dropped keys, numeric widths, arrays or opaque PDC. Every other wrapper
+field remains strict. Original 79 manifests match both audited reverse and pure Fabric
+proofs. Interval=single full batch per proof; windows above on 2026-10-03 ICT.
+Both owned JVMs stopped and loopback ports released. No GUI seen claim, no live import,
+no cold snapshot or PRD cutover; metadata-bearing evidence stays outside git.
 
 Evidence stays outside git: `F:/Pixelclub/chest-codec-rig-{arclight,fabric}-20261002-proof/chest-conversion/`;
 original export `F:/Pixelclub/scratch/justteams-cutover-20261002/chest/donor-live-proof.json`
 SHA256 `8ad763914eea3bdc42f3ee5c30ce5abfc066266c9d24e9d87dad12563d135261`.
+Audited native SHA256 `e883138538d2d2ba0cb9bd47d91da21e2c4eb9691a2698a15b50812642de9e74`;
+audited reverse `9192dab7be3ffa8c455ecbd40654709aa9d401c596309747a37c3022dc3d715d`.
+Registry hash `1988ad94eee34da78fbd5228090cae111a1ccf2d7b2e3e2c1dae8c2f0fbca638` is equal.
+Final addon SHA256 `5c2dd4761305e93c91a260b3261e7178ff447de40422777b844e3c1d743ee5c3`.
 Source/source-registry and all input/output artifacts must be retained for approved
 cold conversion and rollback. Partial first rig directory remains because guarded
 recursive cleanup was automatically rejected; no other process/workspace touched.
