@@ -9,6 +9,7 @@ import java.nio.file.*;
 public final class ColdValidation {
     private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().serializeNulls().create();
     public static void main(String[] args) throws Exception {
+        boolean allValid = true;
         for (String filename : args) {
             byte[] input = Files.readAllBytes(Path.of(filename));
             JsonArray rows = JsonParser.parseString(new String(input, StandardCharsets.UTF_8)).getAsJsonObject().getAsJsonArray("rows");
@@ -27,17 +28,22 @@ public final class ColdValidation {
             }
             JsonObject result = new JsonObject(); result.addProperty("input_name", Path.of(filename).getFileName().toString()); result.addProperty("rows", rows.size()); result.addProperty("passed", passed); result.addProperty("failed", failed); result.addProperty("file_sha256", ColdFiles.sha(input));
             System.out.println(GSON.toJson(result));
+            allValid &= failed == 0;
         }
-        for (float number : new float[]{1.0E-5f, 1.0E20f}) {
+        for (Number number : new Number[]{1.0E-5f, 1.0E20f, 1.0E-30d}) {
             JsonPrimitive typed = new JsonPrimitive(number); String json = GSON.toJson(typed);
             JsonElement nativeParsed = NativeChestCodec.parseStrict(json), coldParsed = ColdFiles.parse(json);
-            JsonObject result = new JsonObject(); result.addProperty("primitive_float_json", json);
+            JsonObject result = new JsonObject(); result.addProperty("primitive_number_json", json);
             result.addProperty("native_before_sha256", NativeChestCodec.semanticSha256(typed));
             result.addProperty("native_after_sha256", NativeChestCodec.semanticSha256(nativeParsed));
+            result.addProperty("cold_before_sha256", ColdFiles.semanticHash(typed));
             result.addProperty("cold_after_sha256", ColdFiles.semanticHash(coldParsed));
             result.addProperty("parsed_json", GSON.toJson(nativeParsed));
-            result.addProperty("equal", NativeChestCodec.semanticSha256(typed).equals(NativeChestCodec.semanticSha256(nativeParsed)));
+            result.addProperty("cold_typed_equal", NativeChestCodec.semanticSha256(typed).equals(ColdFiles.semanticHash(typed)));
+            boolean equal = NativeChestCodec.semanticSha256(typed).equals(NativeChestCodec.semanticSha256(nativeParsed)) && NativeChestCodec.semanticSha256(typed).equals(ColdFiles.semanticHash(coldParsed));
+            result.addProperty("equal", equal); allValid &= equal;
             System.out.println(GSON.toJson(result));
         }
+        if (!allValid) throw new IllegalStateException("Cold validation mismatch; metadata proof above");
     }
 }
