@@ -180,6 +180,26 @@ class ColdChestsTest {
         assertThrows(Exception.class, () -> ColdGate.parseState("{\"State\":{\"Running\":false}}"));
         assertThrows(Exception.class, () -> ColdGate.parseState(record.replace("\"Name\":\"no\"", "\"Name\":false")));
     }
+    @Test void devCannotAttestKnownSharedProductionCatalogOrAmbiguousMysqlTargets() throws Exception {
+        String dev = "pixelclub-arclight-dev";
+        for (String url : java.util.List.of("jdbc:mysql://host/pixelclub", "jdbc:mysql://host:3306/pixelclub?useSSL=true", "jdbc:mariadb://[::1]:3306/pixelclub", "jdbc:mysql://host/PIXELCLUB", "jdbc:mysql://host/pixel%63lub", "jdbc:mariadb://host/%70ixelclub", "jdbc:mysql://host,other/pixelclub", "jdbc:mysql://user:secret@host/pixelclub", "jdbc:mysql://host/dev?databaseName=pixelclub", "jdbc:mysql://host/dev?catalog=%70ixelclub", "jdbc:mysql://host/dev?databaseName=%20pixelclub%20", "jdbc:mysql://host/dev?catalog=other", "jdbc:mysql:loadbalance://host/pixelclub", "jdbc:mysql://host/", "jdbc:mysql://host/dev/extra", "jdbc:mysql://host/dev#pixelclub", "jdbc:mysql://host/%ff")) assertThrows(Exception.class, () -> ColdChests.targetBinding(dev, url));
+        ColdChests.targetBinding(dev, "jdbc:mysql://host/pixelclub_dev?useSSL=true");
+        ColdChests.targetBinding(dev, "jdbc:mariadb://[::1]:3306/isolated_dev");
+        ColdChests.targetBinding(dev, "jdbc:mysql://host/pixelclub_dev?databaseName=pixelclub_dev");
+        assertThrows(Exception.class, () -> ColdChests.targetBinding(dev, "jdbc:mysql://host/pixel%2563lub"));
+        assertThrows(Exception.class, () -> ColdChests.targetBinding(dev, "jdbc:mysql://host/pixelclub%3b"));
+        ColdChests.targetBinding(dev, "jdbc:h2:file:/marked/fixture/teams");
+        ColdChests.targetBinding(null, "jdbc:h2:file:/marked/fixture/teams");
+        ColdChests.targetBinding("pixelclub-arclight", "jdbc:mysql://host/pixelclub");
+    }
+    @Test void devProductionPairRefusesBeforeDatabaseOpenAndRedactsTheUrl() throws Exception {
+        properties.setProperty("jdbc_url", "jdbc:mysql://user:SYNTHETIC_SECRET@invalid-host/pixelclub?connectTimeout=1"); properties.setProperty("driver", "com.mysql.cj.jdbc.Driver"); saveConfig();
+        ByteArrayOutputStream out = new ByteArrayOutputStream(), err = new ByteArrayOutputStream();
+        int status = ColdChests.run(new String[]{"export-native", "--properties", config.toString(), "--container", "pixelclub-arclight-dev", "--output", root.resolve("forbidden.json").toString()}, new PrintStream(out, true, StandardCharsets.UTF_8), new PrintStream(err, true, StandardCharsets.UTF_8));
+        assertEquals(1, status); assertEquals("", out.toString(StandardCharsets.UTF_8));
+        assertEquals("COLD_CHESTS_REFUSED" + System.lineSeparator(), err.toString(StandardCharsets.UTF_8));
+        assertFalse(Files.exists(root.resolve("forbidden.json")));
+    }
     @Test void errorsNeverPrintPrivatePropertiesOrExceptionText() throws Exception {
         properties.setProperty("password", "SYNTHETIC_SECRET_PASSWORD"); saveConfig();
         assertEquals(1, run("export-native", null, null, root.resolve("refused.json"), false));

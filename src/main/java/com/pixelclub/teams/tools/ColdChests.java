@@ -56,6 +56,7 @@ public final class ColdChests {
         try {
             Options options = options(args);
             Config config = config(options.properties());
+            targetBinding(options.container(), config.url());
             ColdGate gate = options.fixtureRoot() == null ? ColdGate.docker(options.container(), !options.mode().equals("export-native")) : ColdGate.fixture(options.fixtureRoot(), config.url(), config.driver());
             if (Files.exists(options.output())) throw new IllegalArgumentException();
             JsonObject proof = switch (options.mode()) {
@@ -91,6 +92,33 @@ public final class ColdChests {
         return new Options(args[0], Path.of(Objects.requireNonNull(values.get("--properties"))), snapshot, artifact,
                 Path.of(Objects.requireNonNull(values.get("--output"))).toAbsolutePath().normalize(), values.get("--container"),
                 values.containsKey("--fixture-root") ? Path.of(values.get("--fixture-root")) : null, apply);
+    }
+    /** A stopped dev container must never attest a known shared production MySQL catalog. */
+    static void targetBinding(String container, String url) throws Exception {
+        if (!"pixelclub-arclight-dev".equals(container) || !(url.startsWith("jdbc:mysql:") || url.startsWith("jdbc:mariadb:"))) return;
+        if (!(url.startsWith("jdbc:mysql://") || url.startsWith("jdbc:mariadb://"))) throw new IllegalArgumentException();
+        java.net.URI address = new java.net.URI(url.substring("jdbc:".length()));
+        String path = address.getRawPath();
+        if (address.getRawAuthority() == null || address.getRawAuthority().isEmpty() || address.getRawFragment() != null || path == null || !path.startsWith("/") || path.length() < 2) throw new IllegalArgumentException();
+        String database = decodeUrl(path.substring(1));
+        if (database.indexOf('/') >= 0 || database.indexOf('\\') >= 0 || database.indexOf('%') >= 0 || database.indexOf(';') >= 0 || database.indexOf('?') >= 0 || database.indexOf('#') >= 0 || database.isBlank() || !database.equals(database.strip()) || database.chars().anyMatch(character -> character < 32)) throw new IllegalArgumentException();
+        if (database.equalsIgnoreCase("pixelclub")) throw new IllegalArgumentException();
+        String query = address.getRawQuery();
+        if (query != null) for (String entry : query.split("&", -1)) {
+            String[] pair = entry.split("=", 2);
+            String key = decodeUrl(pair[0]);
+            if (Set.of("database", "databasename", "db", "catalog").contains(key.toLowerCase(java.util.Locale.ROOT))) {
+                if (pair.length < 2) throw new IllegalArgumentException();
+                String selected = decodeUrl(pair[1]);
+                if (selected.equalsIgnoreCase("pixelclub") || !selected.equalsIgnoreCase(database)) throw new IllegalArgumentException();
+            }
+        }
+    }
+    private static String decodeUrl(String value) throws Exception {
+        // URLDecoder silently replaces malformed UTF-8. Refuse replacement/control ambiguities.
+        String decoded = java.net.URLDecoder.decode(value, StandardCharsets.UTF_8);
+        if (decoded.indexOf('\ufffd') >= 0) throw new IllegalArgumentException();
+        return decoded;
     }
     private static Config config(Path path) throws Exception {
         if (Files.getFileStore(path).supportsFileAttributeView("posix")) {

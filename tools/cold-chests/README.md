@@ -43,6 +43,14 @@ restore that policy within the exclusive approved window; the helper never chang
 Readonly export still requires stopped/stable state but does not change or require policy `no`.
 No injected test probe is exposed through CLI arguments.
 
+Docker state alone does not establish the JDBC target or exclusive access to that database.
+Dev and PRD can share the MySQL/MariaDB `pixelclub` catalog. The CLI rejects configured dev
+`pixelclub-arclight-dev` with that known production catalog before JDBC open/provision, including
+encoded/case variants and explicit catalog selectors. Ambiguous dev MySQL URLs are refused.
+Use a genuinely separate dev catalog or the marked local H2 fixture. This source guard covers the
+known shared pairing; the coordinator still owns final database/host/prefix binding, all writers,
+the production cold window and independent target evidence. An allowed name/URL is not that proof.
+
 Tests can use `--fixture-root <absolute local root>` instead of `--container`, only for an existing
 `jdbc:h2:file:` database inside that root with the regular `.justteams-synthetic-fixture` marker.
 Only original/test H2 drivers and safe MODE=MySQL/AUTO_SERVER=FALSE/DB_CLOSE_ON_EXIT=FALSE/
