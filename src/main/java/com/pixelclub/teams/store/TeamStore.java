@@ -45,6 +45,7 @@ public final class TeamStore {
     public record BankResult(boolean applied, boolean duplicate, double balance, Operation operation, String reason) {}
     public record Chest(int teamId, int formatVersion, String inventoryJson, String originalSha256,
                         long generation, long updatedAt) {}
+    public record ChestSeed(int teamId, int formatVersion, String inventoryJson, String originalSha256) {}
 
     public Map<String, String> requiredSchema() {
         Map<String, String> result = new LinkedHashMap<>();
@@ -188,13 +189,38 @@ public final class TeamStore {
     }
 
     public synchronized boolean accept(UUID target, int teamId, int maxMembers) throws SQLException {
+        // Donor SQL invitations were existence-only, independent of the local five-minute cache.
+        return accept(target, teamId, maxMembers, -1);
+    }
+    public synchronized boolean accept(UUID target, int teamId, int maxMembers, long legacyInviteLifetimeMillis) throws SQLException {
+        if (legacyInviteLifetimeMillis < -1) throw new IllegalArgumentException("Invalid legacy invite lifetime");
         if (maxMembers < 1) return false;
         return transaction(connection -> {
             if (team(connection, teamId, true).isEmpty() || member(connection, target, true).isPresent() || blacklisted(connection, teamId, target)) return false;
-            if (first(connection, "SELECT id FROM " + table("team_invites") + " WHERE team_id=? AND player_uuid=? FOR UPDATE", teamId, target).isEmpty()) return false;
+            Optional<Map<String, Object>> donor = first(connection, "SELECT * FROM " + table("team_invites") + " WHERE team_id=? AND player_uuid=? FOR UPDATE", teamId, target);
+            if (donor.isEmpty()) return false;
             Optional<Operation> invitation = operation(connection, inviteId(teamId, target), true);
-            if (invitation.isEmpty() || !invitation.get().phase().equals("INVITED") || Json.longValue(invitation.get().payload(), "expiresEpochMillis", 0) <= System.currentTimeMillis()) return false;
+            String legacyPayload = null;
+            if (invitation.isPresent()) {
+                Operation existing = invitation.get();
+                checkOperationIdentity(existing, teamId, target, 0);
+                if (!existing.kind().equals("INVITE")) throw new SQLException("Invite operation kind mismatch");
+                if (!existing.phase().equals("INVITED") || Json.longValue(existing.payload(), "expiresEpochMillis", 0) <= System.currentTimeMillis()) return false;
+            } else {
+                Object created = donor.get().get("created_at");
+                if (created != null && !(created instanceof Timestamp)) throw new SQLException("Invalid donor invite timestamp type");
+                long expires = Long.MAX_VALUE;
+                if (legacyInviteLifetimeMillis >= 0) {
+                    if (created == null) return false;
+                    try { expires = Math.addExact(((Timestamp) created).getTime(), legacyInviteLifetimeMillis); } catch (ArithmeticException overflow) { return false; }
+                    if (expires <= System.currentTimeMillis()) return false;
+                }
+                legacyPayload = Json.put("{}", "legacy", "true");
+                legacyPayload = Json.put(legacyPayload, "created_at", created == null ? "null" : Json.string(((Timestamp) created).toInstant().toString()));
+                legacyPayload = Json.put(legacyPayload, "expiresEpochMillis", Long.toString(expires));
+            }
             if (count(connection, "team_members", "team_id", teamId) >= maxMembers) return false;
+            if (invitation.isEmpty()) invitation = Optional.of(beginOperation(connection, inviteId(teamId, target), teamId, target, "INVITE", 0, "INVITED", legacyPayload));
             insert(connection, "team_members", Map.of("player_uuid", target, "team_id", teamId, "role", "MEMBER"));
             execute(connection, "DELETE FROM " + table("team_invites") + " WHERE player_uuid=?", target);
             execute(connection, "DELETE FROM " + table("join_requests") + " WHERE player_uuid=?", target);
@@ -507,6 +533,34 @@ public final class TeamStore {
         });
     }
 
+    /** Caller authorizes admin access. This is a journaled bank reset, with no player economy leg. */
+    public synchronized boolean setBalanceAdmin(int teamId, UUID expectedOwner, UUID actor, double expectedBalance, double newBalance, String opid) throws SQLException {
+        requireOpid(opid); Objects.requireNonNull(expectedOwner); Objects.requireNonNull(actor);
+        if (!Double.isFinite(expectedBalance) || expectedBalance < 0 || !Double.isFinite(newBalance) || newBalance < 0) return false;
+        double delta = newBalance - expectedBalance;
+        return transaction(connection -> {
+            Optional<Team> team = team(connection, teamId, true);
+            Optional<Operation> receipt = operation(connection, opid, true);
+            if (receipt.isPresent()) {
+                Operation existing = receipt.get();
+                checkOperationIdentity(existing, teamId, actor, Math.abs(delta));
+                if (!existing.kind().equals("BANK") || !Json.booleanValue(existing.payload(), "admin") || !Objects.equals(Json.rawValue(existing.payload(), "expectedOwner"), Json.string(expectedOwner.toString())) || Double.compare(Json.doubleValue(existing.payload(), "bankBalanceBefore", Double.NaN), expectedBalance) != 0 || Double.compare(Json.doubleValue(existing.payload(), "bankBalanceAfter", Double.NaN), newBalance) != 0) throw new SQLException("Admin operation id reused with different reset");
+                return existing.effectApplied() && existing.phase().equals("DONE");
+            }
+            if (team.isEmpty() || !team.get().owner().equals(expectedOwner) || Double.compare(team.get().balance(), expectedBalance) != 0 || isFrozen(connection, teamId, actor) || hasUnsettledFinancialOperation(connection, teamId, actor)) return false;
+            if (execute(connection, "UPDATE " + table("teams") + " SET balance=? WHERE id=? AND owner_uuid=? AND balance=?", newBalance, teamId, expectedOwner, expectedBalance) != 1) throw new SQLException("Admin balance reset changed unexpected rows");
+            String payload = Json.put("{}", "admin", "true");
+            payload = Json.put(payload, "actor", Json.string(actor.toString()));
+            payload = Json.put(payload, "expectedOwner", Json.string(expectedOwner.toString()));
+            payload = Json.put(payload, "bankBalanceBefore", Double.toString(expectedBalance));
+            payload = Json.put(payload, "bankBalanceAfter", Double.toString(newBalance));
+            payload = Json.put(payload, "bankDelta", Double.toString(delta));
+            Operation created = beginOperation(connection, opid, teamId, actor, "BANK", Math.abs(delta), "PREPARED", payload);
+            writeOperation(connection, created, "DONE", payload, true);
+            return true;
+        });
+    }
+
     public synchronized Operation beginOperation(String opid, int teamId, UUID player, String kind, double amount, String phase, String payload) throws SQLException {
         try {
             return transaction(connection -> beginOperation(connection, opid, teamId, player, kind, amount, phase, payload));
@@ -576,6 +630,33 @@ public final class TeamStore {
             if (existing.get().generation() != expectedGeneration) return false;
             if (!Objects.equals(existing.get().originalSha256(), originalSha256)) throw new SQLException("Original chest hash cannot change");
             return execute(connection, "UPDATE " + CHESTS + " SET format_version=?,inventory_json=?,generation=generation+1,updated_at=? WHERE team_id=? AND generation=?", formatVersion, inventoryJson, System.currentTimeMillis(), teamId, expectedGeneration) == 1;
+        });
+    }
+
+    /** Cold conversion import: validates every source/hash/replay before inserting any addon row. */
+    public synchronized boolean importChests(List<ChestSeed> seeds) throws SQLException {
+        Objects.requireNonNull(seeds);
+        Map<Integer, ChestSeed> ordered = new java.util.TreeMap<>();
+        for (ChestSeed seed : seeds) {
+            if (seed == null || seed.teamId() < 1 || seed.teamId() == Integer.MAX_VALUE || seed.formatVersion() < 1 || seed.inventoryJson() == null || seed.inventoryJson().isBlank() || seed.originalSha256() == null || !seed.originalSha256().matches("[a-f0-9]{64}") || ordered.putIfAbsent(seed.teamId(), seed) != null) return false;
+        }
+        return transaction(connection -> {
+            for (int teamId : ordered.keySet()) if (team(connection, teamId, true).isEmpty()) return false;
+            List<ChestSeed> inserts = new ArrayList<>();
+            for (ChestSeed seed : ordered.values()) {
+                Optional<Map<String, Object>> donor = first(connection, "SELECT * FROM " + table("team_enderchest") + " WHERE team_id=? FOR UPDATE", seed.teamId());
+                if (donor.isEmpty() || !(donor.get().get("inventory_data") instanceof String original) || original.isEmpty() || !sha256Utf8(original).equals(seed.originalSha256())) return false;
+                Optional<Chest> existing = chest(connection, seed.teamId(), true);
+                if (existing.isPresent()) {
+                    Chest old = existing.get();
+                    if (old.generation() != 1 || old.formatVersion() != seed.formatVersion() || !old.inventoryJson().equals(seed.inventoryJson()) || !Objects.equals(old.originalSha256(), seed.originalSha256())) return false;
+                } else inserts.add(seed);
+            }
+            long now = System.currentTimeMillis();
+            for (ChestSeed seed : inserts) {
+                if (execute(connection, "INSERT INTO " + CHESTS + " (team_id,format_version,inventory_json,original_sha256,generation,updated_at) VALUES (?,?,?,?,?,?)", seed.teamId(), seed.formatVersion(), seed.inventoryJson(), seed.originalSha256(), 1L, now) != 1) throw new SQLException("Chest import changed unexpected rows");
+            }
+            return true;
         });
     }
 
@@ -665,6 +746,11 @@ public final class TeamStore {
         } catch (java.security.NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
     }
     private static String canonical(String value) { return value.toLowerCase(Locale.ROOT); }
+    private static String sha256Utf8(String value) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
+    }
     private static String inviteId(int teamId, UUID target) { return "invite:" + teamId + ":" + target; }
     private void cachePlayer(Connection connection, UUID player, String name) throws SQLException {
         if (first(connection, "SELECT player_uuid FROM " + table("player_cache") + " WHERE player_uuid=? FOR UPDATE", player).isPresent()) {

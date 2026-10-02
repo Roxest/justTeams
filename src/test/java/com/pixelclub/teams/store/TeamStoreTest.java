@@ -331,6 +331,73 @@ public class TeamStoreTest {
         assertEquals(2, store.members(team.id()).size());
     }
 
+    @Test void legacySqlInviteIsUnboundedByDefaultPinsOriginalTimestampAndConsumesOnce() throws Exception {
+        UUID target = UUID.randomUUID();
+        Timestamp original = new Timestamp(0);
+        legacyInvite(target, original);
+        assertTrue(store.accept(target, team.id(), 2));
+        TeamStore.Operation receipt = store.operation("invite:" + team.id() + ":" + target).orElseThrow();
+        assertEquals("CONSUMED", receipt.phase()); assertFalse(receipt.effectApplied());
+        assertTrue(Json.booleanValue(receipt.payload(), "legacy"));
+        assertEquals(Json.string(original.toInstant().toString()), Json.rawValue(receipt.payload(), "created_at"));
+        assertEquals(Long.MAX_VALUE, Json.longValue(receipt.payload(), "expiresEpochMillis", 0));
+        assertMemberDefaults(target);
+        assertTrue(store.rows("team_invites", "player_uuid", target).isEmpty());
+        assertFalse(store.accept(target, team.id(), 3));
+        assertTrue(store.leave(target));
+        assertFalse(store.accept(target, team.id(), 3));
+        UUID noTimestamp = UUID.randomUUID();
+        legacyInvite(noTimestamp, null);
+        assertTrue(store.accept(noTimestamp, team.id(), 2));
+        assertEquals("null", Json.rawValue(store.operation("invite:" + team.id() + ":" + noTimestamp).orElseThrow().payload(), "created_at"));
+    }
+
+    @Test void optionalLegacyLifetimeUsesOriginalDateAndNeverRenewsExpiredOrNativeInvites() throws Exception {
+        UUID expired = UUID.randomUUID();
+        Timestamp old = new Timestamp(System.currentTimeMillis() - 10000);
+        legacyInvite(expired, old);
+        Map<String, Object> before = store.rows("team_invites", "player_uuid", expired).getFirst();
+        assertFalse(store.accept(expired, team.id(), 2, 1000));
+        assertFalse(store.accept(expired, team.id(), 2, 1000));
+        assertTrue(store.operation("invite:" + team.id() + ":" + expired).isEmpty());
+        assertEquals(before, store.rows("team_invites", "player_uuid", expired).getFirst());
+        UUID valid = UUID.randomUUID();
+        Timestamp created = new Timestamp(System.currentTimeMillis() - 50);
+        legacyInvite(valid, created);
+        assertTrue(store.accept(valid, team.id(), 2, 120000));
+        assertEquals(created.getTime() + 120000, Json.longValue(store.operation("invite:" + team.id() + ":" + valid).orElseThrow().payload(), "expiresEpochMillis", 0));
+        assertTrue(store.leave(valid));
+        UUID nativeTarget = UUID.randomUUID();
+        long explicitExpiry = System.currentTimeMillis() + 120000;
+        assertTrue(store.invite(team.id(), owner, nativeTarget, explicitExpiry));
+        assertTrue(store.accept(nativeTarget, team.id(), 2, 0));
+        assertEquals(explicitExpiry, Json.longValue(store.operation("invite:" + team.id() + ":" + nativeTarget).orElseThrow().payload(), "expiresEpochMillis", 0));
+    }
+
+    @Test void legacyInviteAdmissionRollsBackJournalAndMemberWhileKeepingTheDonorRow() throws Exception {
+        UUID target = UUID.randomUUID();
+        legacyInvite(target, new Timestamp(123456));
+        Map<String, Object> before = store.rows("team_invites", "player_uuid", target).getFirst();
+        assertFalse(store.accept(target, team.id(), 1));
+        assertTrue(store.operation("invite:" + team.id() + ":" + target).isEmpty());
+        sql("ALTER TABLE donut_team_members ADD CONSTRAINT fixture_legacy_join CHECK(player_uuid <> '" + target + "')");
+        assertThrows(SQLException.class, () -> store.accept(target, team.id(), 2));
+        assertTrue(store.member(target).isEmpty());
+        assertTrue(store.operation("invite:" + team.id() + ":" + target).isEmpty());
+        assertEquals(before, store.rows("team_invites", "player_uuid", target).getFirst());
+        sql("ALTER TABLE donut_team_members DROP CONSTRAINT fixture_legacy_join");
+        assertTrue(store.accept(target, team.id(), 2));
+    }
+
+    @Test void legacyAdmissionRejectsMismatchedAddonIdentity() throws Exception {
+        UUID target = UUID.randomUUID();
+        legacyInvite(target, new Timestamp(0));
+        store.beginOperation("invite:" + team.id() + ":" + target, 0, target, "INVITE", 0, "INVITED", "{\"expiresEpochMillis\":9223372036854775807}");
+        assertThrows(SQLException.class, () -> store.accept(target, team.id(), 2));
+        assertTrue(store.member(target).isEmpty());
+        assertEquals(1, store.rows("team_invites", "player_uuid", target).size());
+    }
+
     @Test void upgradeBalanceAndTierCommitTogetherOrRollBackTogether() throws Exception {
         assertTrue(store.mutateBank("fund", team.id(), owner, 100, 1000, false, false).applied());
         assertFalse(store.upgrade(team.id(), 2, 3, 10));
@@ -501,6 +568,105 @@ public class TeamStoreTest {
         assertEquals("immutable-donor-blob", store.rows("team_enderchest", "team_id", team.id()).getFirst().get("inventory_data"));
     }
 
+    @Test void chestImportPreservesUtf8OriginalsAndReplaysOnlyUnchangedGenerationOneRows() throws Exception {
+        Team other = store.create("Other", "OT", UUID.randomUUID(), "OtherOwner", "fixture-server");
+        donorChest(team.id(), "old-\u03c0\r\n"); donorChest(other.id(), "abc");
+        var originals = store.rows("team_enderchest", null, null);
+        TeamStore.ChestSeed first = new TeamStore.ChestSeed(team.id(), 1, "[]", "0accf1235b9e5d527399d98d929fb4fede5249a324ef3adf85cc8d1527665ee7");
+        TeamStore.ChestSeed second = new TeamStore.ChestSeed(other.id(), 1, "[null]", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        assertTrue(store.importChests(java.util.List.of(second, first)));
+        TeamStore.Chest imported = store.chest(team.id()).orElseThrow();
+        assertEquals(1, imported.generation()); assertEquals(first.originalSha256(), imported.originalSha256());
+        assertTrue(store.importChests(java.util.List.of(first, second)));
+        assertEquals(imported, store.chest(team.id()).orElseThrow());
+        assertFalse(store.importChests(java.util.List.of(new TeamStore.ChestSeed(team.id(), 2, "[]", first.originalSha256()))));
+        assertFalse(store.importChests(java.util.List.of(new TeamStore.ChestSeed(team.id(), 1, "[1]", first.originalSha256()))));
+        assertTrue(store.saveChest(team.id(), 1, "[]", first.originalSha256(), 1));
+        assertFalse(store.importChests(java.util.List.of(first, second)));
+        assertEquals(2, store.chest(team.id()).orElseThrow().generation());
+        assertEquals(originals, store.rows("team_enderchest", null, null));
+    }
+
+    @Test void chestImportRejectsHashDriftMissingEmptyDuplicateAndReservedSourcesBeforeAnyInsert() throws Exception {
+        Team other = store.create("Other", "OT", UUID.randomUUID(), "OtherOwner", "fixture-server");
+        donorChest(team.id(), "abc");
+        String abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        TeamStore.ChestSeed first = new TeamStore.ChestSeed(team.id(), 1, "[]", abc);
+        TeamStore.ChestSeed second = new TeamStore.ChestSeed(other.id(), 1, "[]", abc);
+        assertFalse(store.importChests(java.util.List.of(first, first)));
+        assertFalse(store.importChests(java.util.List.of(first, second)));
+        donorChest(other.id(), "changed");
+        assertFalse(store.importChests(java.util.List.of(first, second)));
+        sql("UPDATE donut_team_enderchest SET inventory_data='' WHERE team_id=" + other.id());
+        String emptyHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        assertFalse(store.importChests(java.util.List.of(first, new TeamStore.ChestSeed(other.id(), 1, "[]", emptyHash))));
+        UUID reservedOwner = UUID.randomUUID();
+        sql("INSERT INTO donut_teams(id,name,tag,owner_uuid) VALUES(2147483647,'ReservedFixture','RS','" + reservedOwner + "')");
+        donorChest(Integer.MAX_VALUE, "abc");
+        assertFalse(store.importChests(java.util.List.of(first, new TeamStore.ChestSeed(Integer.MAX_VALUE, 1, "[]", abc))));
+        assertTrue(store.chest(team.id()).isEmpty()); assertTrue(store.chest(other.id()).isEmpty());
+        assertTrue(store.chest(Integer.MAX_VALUE).isEmpty());
+    }
+
+    @Test void chestImportRollsBackTheWholeBatchWhenALaterInsertFails() throws Exception {
+        Team other = store.create("Other", "OT", UUID.randomUUID(), "OtherOwner", "fixture-server");
+        donorChest(team.id(), "abc"); donorChest(other.id(), "abc");
+        var originals = store.rows("team_enderchest", null, null);
+        String abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        sql("ALTER TABLE pxc_teams_chests ADD CONSTRAINT fixture_batch CHECK(team_id <> " + other.id() + ")");
+        assertThrows(SQLException.class, () -> store.importChests(java.util.List.of(new TeamStore.ChestSeed(team.id(), 1, "[]", abc), new TeamStore.ChestSeed(other.id(), 1, "[]", abc))));
+        assertTrue(store.chest(team.id()).isEmpty()); assertTrue(store.chest(other.id()).isEmpty());
+        assertEquals(originals, store.rows("team_enderchest", null, null));
+    }
+
+    @Test void adminBalanceResetIsJournaledWithoutAPlayerLegAndReplaysWithoutReapplying() throws Exception {
+        sql("UPDATE donut_teams SET balance=123.005 WHERE id=" + team.id());
+        Map<String, Object> before = store.team(team.id()).orElseThrow().fields();
+        UUID admin = UUID.randomUUID();
+        double reset = 1234567890.125;
+        assertTrue(store.setBalanceAdmin(team.id(), owner, admin, 123.005, reset, "admin-reset"));
+        Map<String, Object> expected = new LinkedHashMap<>(before); expected.put("balance", reset);
+        assertEquals(expected, store.team(team.id()).orElseThrow().fields());
+        assertTrue(store.member(admin).isEmpty());
+        TeamStore.Operation receipt = store.operation("admin-reset").orElseThrow();
+        assertEquals("BANK", receipt.kind()); assertEquals("DONE", receipt.phase()); assertTrue(receipt.effectApplied());
+        assertEquals(admin, receipt.player()); assertTrue(Json.booleanValue(receipt.payload(), "admin"));
+        assertEquals(Json.string(admin.toString()), Json.rawValue(receipt.payload(), "actor"));
+        assertEquals(123.005, Json.doubleValue(receipt.payload(), "bankBalanceBefore", 0));
+        assertEquals(reset, Json.doubleValue(receipt.payload(), "bankBalanceAfter", 0));
+        assertTrue(store.pendingOperations().isEmpty());
+        assertTrue(store.setBalanceAdmin(team.id(), owner, admin, reset, 5, "later-reset"));
+        assertTrue(store.setBalanceAdmin(team.id(), owner, admin, 123.005, reset, "admin-reset"));
+        assertEquals(5, store.team(team.id()).orElseThrow().balance());
+        assertThrows(SQLException.class, () -> store.setBalanceAdmin(team.id(), owner, admin, 123.005, reset + 1, "admin-reset"));
+        assertThrows(SQLException.class, () -> store.setBalanceAdmin(team.id(), owner, UUID.randomUUID(), 123.005, reset, "admin-reset"));
+        assertThrows(SQLException.class, () -> store.setBalanceAdmin(team.id(), UUID.randomUUID(), admin, 123.005, reset, "admin-reset"));
+    }
+
+    @Test void adminResetRefusesStaleUnauthorizedInvalidAndUnsettledOrFrozenInputsWithoutAReceipt() throws Exception {
+        UUID admin = UUID.randomUUID();
+        assertFalse(store.setBalanceAdmin(team.id(), UUID.randomUUID(), admin, 0, 10, "wrong-owner"));
+        assertFalse(store.setBalanceAdmin(team.id(), owner, admin, 1, 10, "stale"));
+        assertFalse(store.setBalanceAdmin(team.id(), owner, admin, Double.NaN, 10, "nan-before"));
+        assertFalse(store.setBalanceAdmin(team.id(), owner, admin, 0, Double.POSITIVE_INFINITY, "infinite"));
+        assertFalse(store.setBalanceAdmin(team.id(), owner, admin, 0, -1, "negative"));
+        store.beginOperation("pending", team.id(), owner, "DEPOSIT", 1, "PREPARED", "{}");
+        assertFalse(store.setBalanceAdmin(team.id(), owner, admin, 0, 10, "unsettled"));
+        store.freezeOperation("pending", "fixture unknown");
+        assertFalse(store.setBalanceAdmin(team.id(), owner, admin, 0, 10, "frozen"));
+        for (String opid : java.util.List.of("wrong-owner", "stale", "nan-before", "infinite", "negative", "unsettled", "frozen")) assertTrue(store.operation(opid).isEmpty());
+        assertEquals(0, store.team(team.id()).orElseThrow().balance());
+    }
+
+    @Test void adminResetRollsBackTheBalanceAndAuditTogetherOnJournalFailure() throws Exception {
+        UUID admin = UUID.randomUUID();
+        Map<String, Object> before = store.team(team.id()).orElseThrow().fields();
+        sql("ALTER TABLE pxc_teams_operations ADD CONSTRAINT fixture_admin_done CHECK(phase <> 'DONE')");
+        assertThrows(SQLException.class, () -> store.setBalanceAdmin(team.id(), owner, admin, 0, 10, "admin-rollback"));
+        assertEquals(before, store.team(team.id()).orElseThrow().fields());
+        assertTrue(store.operation("admin-rollback").isEmpty());
+    }
+
     @Test void deletionCascadesAllDonorDependenciesButRetainsMoneyJournal() throws Exception {
         UUID member = addMember(2);
         store.insertRow("team_custom_data", Map.of("team_id", team.id(), "data_key", "fixture", "data_value", "kept until delete"));
@@ -525,6 +691,16 @@ public class TeamStoreTest {
     }
     private void blacklist(UUID target) throws SQLException {
         store.insertRow("team_blacklist", Map.of("team_id", team.id(), "player_uuid", target, "player_name", "Blocked", "blacklisted_by_uuid", owner, "blacklisted_by_name", "TestOwner"));
+    }
+    private void legacyInvite(UUID target, Timestamp created) throws SQLException {
+        try (Connection connection = factory.open(); var statement = connection.prepareStatement("INSERT INTO donut_team_invites(team_id,player_uuid,inviter_uuid,created_at) VALUES(?,?,?,?)")) {
+            statement.setInt(1, team.id()); statement.setString(2, target.toString()); statement.setString(3, owner.toString()); statement.setTimestamp(4, created); statement.executeUpdate();
+        }
+    }
+    private void donorChest(int teamId, String original) throws SQLException {
+        try (Connection connection = factory.open(); var statement = connection.prepareStatement("INSERT INTO donut_team_enderchest(team_id,inventory_data) VALUES(?,?)")) {
+            statement.setInt(1, teamId); statement.setString(2, original); statement.executeUpdate();
+        }
     }
     private void assertMemberDefaults(UUID player) throws SQLException {
         Member member = store.member(player).orElseThrow();
