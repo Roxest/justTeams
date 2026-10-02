@@ -1,0 +1,48 @@
+# Build and cache directories
+.gradle/
+build/
+target/
+out/
+bin/
+
+# Archive and jar artifacts
+*.jar
+*.war
+*.zip
+*.tar.gz
+!gradle/wrapper/gradle-wrapper.jar
+
+# Database files
+*.db
+*.mv.db
+
+# Logs and runtime dumps
+*.log
+logs/
+build-log.txt
+compile-output.txt
+reports/
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+
+# Local testing and scratch files
+backups/
+data/
+decompiled-2.5.5/
+JustTeams-2.5.5/
+reference-2.5.5-api.txt
+restore-teams.sql
+
+# Runtime root configs (canonical templates live in src/main/resources/)
+/commands.yml
+/config.yml
+/gui.yml
+/messages.yml
+/placeholders.yml
+/webhooks.yml

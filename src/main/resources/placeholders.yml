@@ -172,16 +172,19 @@ roles:
   co_owner:
     color: "#FF6B6B"
     icon: "◆ "
+    name: "Co-Owner"
     priority: 2
   
   member:
     color: "#FFFFFF"
     icon: "● "
+    name: "Member"
     priority: 3
   
   owner:
     color: "#FFD700"
     icon: "★ "
+    name: "Owner"
     priority: 1
 
 # =============================================================================

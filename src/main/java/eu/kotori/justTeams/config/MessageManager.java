@@ -81,6 +81,38 @@ public class MessageManager {
         target.sendMessage(LegacyComponentSerializer.legacySection().serialize(component));
     }
 
+    public void sendMessageList(CommandSender target, String key, TagResolver... resolvers) {
+        try {
+            if (messagesConfig == null) {
+                reload();
+            }
+            java.util.List<String> lines = messagesConfig.getStringList(key);
+            if (lines.isEmpty()) {
+                String single = messagesConfig.getString(key);
+                if (single != null) {
+                    lines = java.util.Collections.singletonList(single);
+                }
+            }
+            for (String line : lines) {
+                target.sendMessage(LegacyComponentSerializer.legacySection().serialize(miniMessage.deserialize(line, resolvers)));
+            }
+        } catch (Exception e) {
+            plugin.getLogger().severe("Error sending message list for key " + key + ": " + e.getMessage());
+        }
+    }
+
+    public java.util.List<String> getRawMessageList(String key) {
+        try {
+            if (messagesConfig == null) {
+                reload();
+            }
+            return messagesConfig.getStringList(key);
+        } catch (Exception e) {
+            plugin.getLogger().severe("Error getting raw message list for key " + key + ": " + e.getMessage());
+            return java.util.Collections.emptyList();
+        }
+    }
+
     public String getRawMessage(String key) {
         try {
             if (messagesConfig == null) {

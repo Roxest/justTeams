@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "justteams",
+  "version": "2.5.5",
+  "name": "JustTeams",
+  "description": "A powerful teams mod for multi-server networks running on Fabric 1.21.1.",
+  "authors": [
+    "kotori"
+  ],
+  "contact": {
+    "homepage": "https://kotori.ink/wiki/justteams"
+  },
+  "license": "CC-BY-NC-SA-4.0",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "eu.kotori.justTeams.JustTeamsFabric"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "minecraft": "~1.21.1",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}

@@ -116,4 +116,37 @@ public class StartupMessage {
         player.sendMessage("");
         player.sendMessage(LegacyComponentSerializer.legacySection().serialize(mm.deserialize("<gradient:#7FCAE3:#4C9DDE>--------------------------------------------------</gradient>")));
     }
+
+    public static void sendMissingPacketEventsWarning() {
+        CommandSender console = Bukkit.getConsoleSender();
+        MiniMessage mm = MiniMessage.miniMessage();
+        String mainColor = "#e74c3c";
+        String accentColor = "#c0392b";
+        String lineSeparator = "<dark_gray><strikethrough>                                                                                ";
+        String downloadUrl = "https://modrinth.com/plugin/packetevents";
+        java.util.function.Consumer<String> send = s -> console.sendMessage(LegacyComponentSerializer.legacySection().serialize(mm.deserialize(s)));
+        send.accept(lineSeparator);
+        console.sendMessage("");
+        send.accept("  <color:" + mainColor + ">\u2588\u2557  \u2588\u2588\u2557   <white>JustTeams <red>\u26a0 Missing Dependency");
+        send.accept("  <color:" + mainColor + ">\u2588\u2588\u2551 \u2588\u2588\u2554\u255d");
+        send.accept("  <color:" + mainColor + ">\u2588\u2588\u2588\u2588\u2588\u2554\u255d   <white>\u1d18\u1d00\u1d04\u1d0b\u1d07\u1d1b\u1d07\u1d20\u1d07\u0274\u1d1bs <red>is not installed!");
+        send.accept("  <color:" + accentColor + ">\u2588\u2554\u2550\u2588\u2588\u2557    <gray>The <white>Team Glow <gray>feature requires it.");
+        send.accept("  <color:" + accentColor + ">\u2588\u2551  \u2588\u2588\u2557   <gray>Team Glow has been <red>disabled</red>.");
+        send.accept("  <color:" + accentColor + ">\u2588\u2551  \u255a\u2550\u255d   <gray>Download: <aqua><click:open_url:'" + downloadUrl + "'>" + downloadUrl + "</click>");
+        console.sendMessage("");
+        send.accept(lineSeparator);
+    }
+
+    public static void sendMissingPacketEventsNotification(Player player) {
+        MiniMessage mm = MiniMessage.miniMessage();
+        String link = "https://modrinth.com/plugin/packetevents";
+        java.util.function.Consumer<String> send = s -> player.sendMessage(LegacyComponentSerializer.legacySection().serialize(mm.deserialize(s)));
+        send.accept("<gradient:#e74c3c:#c0392b>--------------------------------------------------</gradient>");
+        player.sendMessage("");
+        send.accept("  <gradient:#e74c3c:#c0392b>JustTeams</gradient> <gray>Missing Dependency</gray>");
+        send.accept("  <gray><white>PacketEvents</white> is not installed! <white>Team Glow</white> is disabled.</gray>");
+        send.accept("  <click:open_url:'" + link + "'><hover:show_text:'<green>Click to visit download page!'><aqua><u>Click here to download PacketEvents</u></hover></click>");
+        player.sendMessage("");
+        send.accept("<gradient:#c0392b:#e74c3c>--------------------------------------------------</gradient>");
+    }
 }

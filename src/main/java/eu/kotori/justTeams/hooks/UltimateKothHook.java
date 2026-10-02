@@ -4,85 +4,65 @@ import eu.kotori.justTeams.JustTeams;
 import eu.kotori.justTeams.team.Team;
 import me.ulrich.koth.Koth;
 import me.ulrich.koth.events.KothCaptureEvent;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 
-/**
- * UltimateKoth integration hook for JustTeams.
- * 
- * Registers JustTeams as a faction/group provider with UltimateKoth's API,
- * allowing UltimateKoth to recognize team membership during KOTH events.
- */
 public class UltimateKothHook implements Listener {
+   private final JustTeams plugin;
+   private JustTeamsGroupImplement groupImplement;
+   private boolean registered = false;
 
-    private final JustTeams plugin;
-    private JustTeamsGroupImplement groupImplement;
-    private boolean registered = false;
+   public UltimateKothHook(JustTeams plugin) {
+      this.plugin = plugin;
+   }
 
-    public UltimateKothHook(JustTeams plugin) {
-        this.plugin = plugin;
-    }
+   public void registerGroupProvider() {
+      try {
+         this.groupImplement = new JustTeamsGroupImplement(this.plugin);
+         boolean success = Koth.getCore().getImpAPI().getGroupAPI().addImplementation("JustTeams", this.groupImplement);
+         if (success) {
+            this.plugin.getLogger().info("✓ JustTeams registered as UltimateKoth group provider!");
+            this.registered = true;
+         } else {
+            this.plugin.getLogger().warning("Failed to register JustTeams with UltimateKoth GroupAPI");
+         }
+      } catch (Exception e) {
+         this.plugin.getLogger().warning("Error registering JustTeams with UltimateKoth: " + e.getMessage());
+         if (this.plugin.getConfigManager().isDebugEnabled()) {
+            e.printStackTrace();
+         }
+      }
+   }
 
-    /**
-     * Registers JustTeams with UltimateKoth's GroupAPI.
-     */
-    public void registerGroupProvider() {
-        try {
-            groupImplement = new JustTeamsGroupImplement(plugin);
-
-            boolean success = Koth.getCore().getImpAPI().getGroupAPI()
-                    .addImplementation("JustTeams", groupImplement);
-
-            if (success) {
-                plugin.getLogger().info("✓ JustTeams registered as UltimateKoth group provider!");
-                registered = true;
-            } else {
-                plugin.getLogger().warning("Failed to register JustTeams with UltimateKoth GroupAPI");
-            }
-        } catch (Exception e) {
-            plugin.getLogger().warning("Error registering JustTeams with UltimateKoth: " + e.getMessage());
-            if (plugin.getConfigManager().isDebugEnabled()) {
-                e.printStackTrace();
-            }
-        }
-    }
-
-    /**
-     * Unregisters JustTeams from UltimateKoth's GroupAPI.
-     */
-    public void unregisterGroupProvider() {
-        if (!registered)
-            return;
-
-        try {
+   public void unregisterGroupProvider() {
+      if (this.registered) {
+         try {
             Koth.getCore().getImpAPI().getGroupAPI().removeImplementation("JustTeams");
-            plugin.getLogger().info("JustTeams unregistered from UltimateKoth");
-            registered = false;
-        } catch (Exception e) {
-            plugin.getLogger().warning("Error unregistering from UltimateKoth: " + e.getMessage());
-        }
-    }
+            this.plugin.getLogger().info("JustTeams unregistered from UltimateKoth");
+            this.registered = false;
+         } catch (Exception e) {
+            this.plugin.getLogger().warning("Error unregistering from UltimateKoth: " + e.getMessage());
+         }
+      }
+   }
 
-    @EventHandler
-    public void onKothCapture(KothCaptureEvent event) {
-        Player player = event.getPlayer();
-        if (player == null)
-            return;
+   @EventHandler
+   public void onKothCapture(KothCaptureEvent event) {
+      Player player = event.getPlayer();
+      if (player != null) {
+         Team team = this.plugin.getTeamManager().getPlayerTeam(player.getUniqueId());
+         if (team != null) {
+            this.plugin
+               .getLogger()
+               .info("[UKoth Integration] " + player.getName() + " from team '" + team.getName() + "' captured KOTH: " + event.getKothUUID());
+            team.broadcast("koth_capture_team", Placeholder.unparsed("player", player.getName()), Placeholder.unparsed("team", team.getName()));
+         }
+      }
+   }
 
-        Team team = plugin.getTeamManager().getPlayerTeam(player.getUniqueId());
-        if (team != null) {
-
-            plugin.getLogger().info("[UKoth Integration] " + player.getName() + " from team '"
-                    + team.getName() + "' captured KOTH: " + event.getKothUUID());
-
-            team.broadcast("koth_capture_team",
-                    net.kyori.adventure.text.minimessage.tag.resolver.Placeholder.unparsed("player", player.getName()),
-                    net.kyori.adventure.text.minimessage.tag.resolver.Placeholder.unparsed("team", team.getName()));
-        }
-    }
-
-    public boolean isRegistered() {
-        return registered;
-    }
+   public boolean isRegistered() {
+      return this.registered;
+   }
 }

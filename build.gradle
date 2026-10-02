@@ -1,0 +1,91 @@
+plugins {
+    id 'fabric-loom' version '1.9-SNAPSHOT'
+    id 'com.gradleup.shadow' version '8.3.3'
+    id 'java'
+}
+
+version = project.mod_version
+group = project.mod_group
+
+repositories {
+    mavenCentral()
+    maven { url "https://maven.fabricmc.net/" }
+    maven { url "https://hub.spigotmc.org/nexus/content/groups/public/" }
+    maven { url "https://repo.codemc.io/repository/maven-releases/" }
+    maven { url "https://repo.codemc.org/repository/maven-public/" }
+    maven { url "https://oss.sonatype.org/content/groups/public/" }
+    maven { url "https://jitpack.io" }
+    maven { url "https://repo.extendedclip.com/content/repositories/placeholderapi/" }
+    maven { url "https://libraries.minecraft.net/" }
+    maven { url "https://maven.nucleoid.xyz/" }
+}
+
+configurations {
+    shadowImpl
+    implementation.extendsFrom shadowImpl
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:${loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_version}"
+    modImplementation "eu.pb4:sgui:1.6.1+1.21.1"
+    include "eu.pb4:sgui:1.6.1+1.21.1"
+
+    // Shaded dependencies for Pure Fabric standalone runtime
+    shadowImpl "com.zaxxer:HikariCP:5.1.0"
+    shadowImpl "com.mysql:mysql-connector-j:8.4.0"
+    shadowImpl "org.yaml:snakeyaml:2.2"
+    shadowImpl "com.h2database:h2:2.2.224"
+    shadowImpl "com.google.code.gson:gson:2.10.1"
+    shadowImpl "net.kyori:adventure-api:4.17.0"
+    shadowImpl "net.kyori:adventure-text-minimessage:4.17.0"
+    shadowImpl "net.kyori:adventure-text-serializer-legacy:4.17.0"
+    shadowImpl "net.kyori:adventure-text-serializer-plain:4.17.0"
+    compileOnly "org.jetbrains:annotations:23.0.0"
+
+    // Spigot & plugin dependencies for legacy dual-mode classes
+    compileOnly "org.spigotmc:spigot-api:1.21.1-R0.1-SNAPSHOT"
+    compileOnly "com.github.MilkBowl:VaultAPI:1.7.1"
+    compileOnly "me.clip:placeholderapi:2.11.6"
+    compileOnly "me.NoChance.PvPManager:pvpmanager:3.18.44"
+    compileOnly "com.github.UlrichBR:UKoth-API:2.10.0-R2"
+    compileOnly "com.github.retrooper:packetevents-spigot:2.4.0"
+    compileOnly "me.chancesd.sdutils:sdutils:1.2-SNAPSHOT"
+    compileOnly "com.github.SkytAsul:GlowingEntities:1.4.1"
+    compileOnly "redis.clients:jedis:5.1.0"
+    compileOnly "org.apache.commons:commons-pool2:2.12.0"
+    compileOnly "org.json:json:20231013"
+    compileOnly "org.bstats:bstats-bukkit:3.0.2"
+}
+
+shadowJar {
+    configurations = [project.configurations.shadowImpl]
+    archiveClassifier.set('shaded')
+    relocate 'com.zaxxer.hikari', 'eu.kotori.justTeams.libs.hikari'
+    relocate 'org.h2', 'eu.kotori.justTeams.libs.h2'
+}
+
+remapJar {
+    dependsOn shadowJar
+    inputFile.set(shadowJar.archiveFile)
+    archiveClassifier.set('')
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+    options.encoding = 'UTF-8'
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}

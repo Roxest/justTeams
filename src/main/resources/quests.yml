@@ -1,0 +1,100 @@
+quests-version: 1
+settings:
+  enabled: true
+  auto_assign_count: 3
+quests:
+  daily_zombie_slayer:
+    name: "Zombie Slayer"
+    description:
+      - "Hunt down zombies as a team."
+      - "Every kill counts toward the goal."
+    type: KILL_MOBS
+    target: ZOMBIE
+    required: 100
+    reward_points: 250
+    reward_money: 500.0
+    duration_seconds: 86400
+    icon: ROTTEN_FLESH
+
+  daily_skeleton_slayer:
+    name: "Skeleton Slayer"
+    description:
+      - "Take down skeletons as a team."
+    type: KILL_MOBS
+    target: SKELETON
+    required: 75
+    reward_points: 200
+    reward_money: 400.0
+    duration_seconds: 86400
+    icon: BONE
+
+  arena_warriors:
+    name: "Arena Warriors"
+    description:
+      - "Defeat enemy players in PvP."
+    type: KILL_PLAYERS
+    target: ANY
+    required: 25
+    reward_points: 1000
+    reward_money: 2500.0
+    duration_seconds: 86400
+    icon: DIAMOND_SWORD
+
+  miners_pact:
+    name: "Miners Pact"
+    description:
+      - "Mine stone or its variants together."
+    type: BREAK_BLOCKS
+    target: STONE
+    required: 5000
+    reward_points: 300
+    reward_money: 750.0
+    duration_seconds: 86400
+    icon: IRON_PICKAXE
+
+  builders_guild:
+    name: "Builders Guild"
+    description:
+      - "Place blocks toward a shared build."
+    type: PLACE_BLOCKS
+    target: ANY
+    required: 2500
+    reward_points: 200
+    reward_money: 500.0
+    duration_seconds: 86400
+    icon: BRICKS
+
+  long_haul:
+    name: "Long Haul"
+    description:
+      - "Travel across the world together."
+    type: TRAVEL_DISTANCE
+    target: ANY
+    required: 5000
+    reward_points: 150
+    reward_money: 250.0
+    duration_seconds: 86400
+    icon: COMPASS
+
+  # ---------------------------------------------------------------------------
+  # CUSTOM quest example (disabled — remove the leading '#' to enable).
+  # A CUSTOM quest is driven by another plugin (or your own content) instead of
+  # the built-in listeners. The 'target' below is your own objective key, and you
+  # advance it from code with:
+  #
+  #   JustTeams.getInstance().getQuestManager()
+  #            .addCustomProgress(player, "DUNGEON_CLEAR", 1);
+  #
+  # The key is matched case-insensitively; use ANY to match every key you push.
+  # ---------------------------------------------------------------------------
+  #dungeon_master:
+  #  name: "Dungeon Master"
+  #  description:
+  #    - "Clear dungeons together as a team."
+  #  type: CUSTOM
+  #  target: DUNGEON_CLEAR
+  #  required: 5
+  #  reward_points: 800
+  #  reward_money: 1500.0
+  #  duration_seconds: 604800
+  #  icon: DRAGON_HEAD
