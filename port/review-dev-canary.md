@@ -1,0 +1,13 @@
+# Focused DEV canary helper QA
+
+Reviewed source only: `qa/private-settings/deploy_dev_canary.py` and imported `F:/Pixelclub/pxctools-fabric/port/runtime/dev_window.py` inspect contract. No live call, source edit, secret/private settings read, server action or test suite. Parent owns the explicitly released DEV restart window and cold rollback. This review does not authorize another boot/window.
+
+**No HIGH/MEDIUM blocker established.**
+
+- Fixed ROOT/CONTAINER select DEV. window.inspect verifies that exact root is the RW /data mount, refuses host networking/ambiguous or nonprivate bridge addresses, and returns selected state fields without Docker environment/config. Pin requires exact StartedAt/PID, running/not paused/restarting, baseline jar/config/three peer hashes, off-server rollback old-jar SHA, RCON players0 and one JVM effective UID/GID (`helper:47-80`). The separate bound-TCP stop helper retains responsibility for save/stop; this installer sends neither stop nor player mutation.
+- Stage requires clean cold PID0/exit0/no OOM/error and restart-policy=no with the released StartedAt. Baseline rejects an existing target app/native DB and config drift. Cold checks recur at each upload and old-jar removal; JVM owner comes from the pinned identity (`:83-107`). This relies on the coordinator keeping the released window exclusive, rather than claiming observational probes are a global lock.
+- Config/DB writes use wxb EXCL incoming paths, effective-JVM ownership/mode600, uploaded hash verification and POSIX rename. Old002a is removed only after local rollback and remote exact-SHA proof. New jar uses wxb EXCL, mode644 and remote686 hash/old-absence proof; nothing overwrites a running jar and no server rollback backup is created (`:95-112`). Metadata journals disclose hashes/state only.
+- Start repeats clean-cold and app/DB/all staged-config hash checks before docker start; it requires a new running boot still policy=no afterward (`:113-123`). Non-Refused diagnostics are redacted. Startup is only an executed boot claim; load/log/state acceptance remains root's next phase.
+- Stage has no automatic rollback. A write/rename/journal failure can leave a partial *cold* placement; caller must preserve policy=no, re-prove cold, restore the verified private rollback and clean incoming/new artifacts before any start. Parent explicitly owns that recovery. Single-use journals refuse overwrite rather than silently replacing evidence.
+
+A mirror unit suite would add little to these mechanical calls. Root may proceed through pin/bound-stop/stage/start with the existing phase guards, then verify actual deployed hashes/new boot and canary behavior. No readiness claim for production.
