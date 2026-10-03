@@ -1,0 +1,29 @@
+MC 1.21.1 official Mojmaps AbstractContainerMenu.doClick
+     595: sipush        -999
+     598: if_icmpne     658
+     601: aload_0
+     602: invokevirtual #285                // Method getCarried:()Lnet/minecraft/world/item/ItemStack;
+     605: invokevirtual #525                // Method net/minecraft/world/item/ItemStack.isEmpty:()Z
+     608: ifne          1070
+     611: aload         6
+     613: getstatic     #600                // Field net/minecraft/world/inventory/ClickAction.PRIMARY:Lnet/minecraft/world/inventory/ClickAction;
+     616: if_acmpne     640
+     619: aload         4
+     621: aload_0
+     622: invokevirtual #285                // Method getCarried:()Lnet/minecraft/world/item/ItemStack;
+     625: iconst_1
+     626: invokevirtual #607                // Method net/minecraft/world/entity/player/Player.drop:(Lnet/minecraft/world/item/ItemStack;Z)Lnet/minecraft/world/entity/item/ItemEntity;
+     629: pop
+     630: aload_0
+     631: getstatic     #89                 // Field net/minecraft/world/item/ItemStack.EMPTY:Lnet/minecraft/world/item/ItemStack;
+     634: invokevirtual #589                // Method setCarried:(Lnet/minecraft/world/item/ItemStack;)V
+     637: goto          1070
+     640: aload         4
+     642: aload_0
+     643: invokevirtual #285                // Method getCarried:()Lnet/minecraft/world/item/ItemStack;
+     646: iconst_1
+     647: invokevirtual #610                // Method net/minecraft/world/item/ItemStack.split:(I)Lnet/minecraft/world/item/ItemStack;
+     650: iconst_1
+     651: invokevirtual #607                // Method net/minecraft/world/entity/player/Player.drop:(Lnet/minecraft/world/item/ItemStack;Z)Lnet/minecraft/world/entity/item/ItemEntity;
+     654: pop
+     655: goto          1070

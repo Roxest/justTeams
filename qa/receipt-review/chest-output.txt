@@ -1,0 +1,2 @@
+Chest exact-method/H2 fixture: CURSOR_HELD -> ESCROW -> restart -> partial ESCROW(54) -> DONE; inventory=67 saved=67 pending=0 frozen=0
+Chest exact-method/H2 fixture: previous cursor op superseded -> DONE; inventory=17 saved=17 pending=0

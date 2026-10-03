@@ -3,7 +3,10 @@
 NOT GO. Based on the 2026-10-03 living note `00-now/justTeams Fabric cutover — ทำต่อจากตรงนี้.md`.
 Source/artifact readiness is separate from placement: **no justTeams PRD placement done**.
 GUI may still change; pin final source/overlay/converter/full-bundle hashes together.
-Latest application SHA: **TBD_FINAL_APP_SHA**. This document authorizes no server change.
+Latest application candidate SHA256: **4ad8e0ac9888c671cc2aabdf98b8d126d2512956edd05c32c48d5171ea1a3f87**,
+application source83cdaa4. Immutable artifact:
+`F:/Pixelclub/scratch/justteams-cutover-20261002/artifacts/JustTeams-2.5.5+pxc.1-4ad8e0ac.jar`.
+This is the native-tested candidate, still awaiting acceptance gates. This document authorizes no server change.
 
 Immutable loader-specific originals, retained outside every server directory:
 
@@ -19,7 +22,8 @@ PRD stop/start/restart window. Deploy approval is not restart approval. Hold whi
 record rollback decision time. No money/refund/price/system-removal/client change is implicit.
 
 Tools primary fbaed118...c9f0/source7c57f97 is Kraus-selected; obtain full SHA/owner release.
-AE/Spawner/PAPI collector-monthly/worlds remain owner HOLD. PAPI owns shared DEV until release;
+AE/Spawner/PAPI collector-monthly/worlds remain owner HOLD. PAPI released shared DEV04:12ICT;
+Tools holds the following window until its explicit baseline/owner handoff. Recheck current owner;
 no overlapping restart/deploy. Finish DEV before PRD, never during PRD work.
 
 Require actual full mod/library/nested-JiJ roster, MC1.21.1/loader/provider/auth/permissions versions,

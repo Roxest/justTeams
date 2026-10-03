@@ -1,0 +1,3 @@
+BankService actual-source JUnit bodies: passed=34 failed=0 total=34
+
+WalletFence actual-source synthetic checks: passed=5 enqueue/success/new-failure/checkpoint/virtual-identity

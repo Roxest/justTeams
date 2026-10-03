@@ -1,0 +1,4 @@
+scenario=0 leaseOpen=false cursor=0 playerInventory=0 disconnected=true walPhase=FROZEN sqlLookups=0
+innocentTeamMember inventoryAfterJoin=0 disconnected=true ownReceipt=false
+scenario=1 leaseOpen=true cursor=0 playerInventory=3 disconnected=false walPhase=CANCELLED sqlLookups=0
+scenario=2 leaseOpen=false cursor=0 playerInventory=0 disconnected=true walPhase=FROZEN sqlLookups=0

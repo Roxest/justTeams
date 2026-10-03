@@ -1,0 +1,2 @@
+failure=freeze-write leaseOpen=true revoked=false cursor=64 durableChest=64 phase=CHEST_INTENT vulnerable=true
+failure=operation-read leaseOpen=true revoked=false cursor=64 durableChest=64 phase=CHEST_INTENT vulnerable=true
