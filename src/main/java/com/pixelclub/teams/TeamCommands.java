@@ -2,12 +2,16 @@ package com.pixelclub.teams;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.suggestion.Suggestions;
+import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import com.mojang.brigadier.tree.CommandNode;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.server.level.ServerPlayer;
 import java.lang.reflect.Field;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 
 public final class TeamCommands {
     private TeamCommands(){}
@@ -27,7 +31,7 @@ public final class TeamCommands {
         boolean team=name.equals("team");
         if(team){CommandNode<CommandSourceStack> existing=dispatcher.getRoot().getChild("team");if(existing!=null)vanillaTeam=existing;}
         remove(dispatcher.getRoot(),name);
-        CommandNode<?> node=dispatcher.register(Commands.literal(name).executes(context->execute(context.getSource(),"",message,team)).then(Commands.argument("arguments",StringArgumentType.greedyString()).executes(context->execute(context.getSource(),StringArgumentType.getString(context,"arguments"),message,team))));owned.get(dispatcher).put(name,node);
+        CommandNode<?> node=dispatcher.register(Commands.literal(name).executes(context->execute(context.getSource(),"",message,team)).then(Commands.argument("arguments",StringArgumentType.greedyString()).suggests(message?(context,builder)->builder.buildFuture():TeamCommands::suggest).executes(context->execute(context.getSource(),StringArgumentType.getString(context,"arguments"),message,team))));owned.get(dispatcher).put(name,node);
     }
     /** Non-player sources keep vanilla scoreboard teams (`team add|join|modify ...`); players always get justTeams. */
     private static int vanilla(CommandSourceStack source,String arguments){
@@ -156,6 +160,21 @@ public final class TeamCommands {
             return 1;
         }catch(Exception error){if(core!=null&&source.getPlayer()!=null)core.refuse(source.getPlayer(),error);else source.sendFailure(net.minecraft.network.chat.Component.literal(error instanceof TeamsCore.Refusal?error.getMessage():"justTeams refused: "+error.getClass().getSimpleName()));return 0;}
     }
-    private static void require(String[] args,int count){if(args.length<count)throw new TeamsCore.Refusal("MISSING_ARGUMENT");}
+    /** MISSING_ARGUMENT carries the donor usage key's action (usage_warp, usage_settag, ...). */
+    private static void require(String[] args,int count){if(args.length<count){String action=args.length==0?"":args[0].toLowerCase(Locale.ROOT);action=switch(action){case "tag"->"settag";case "description","setdesc"->"setdescription";case "setcolor"->"color";default->action;};throw new TeamsCore.Refusal("MISSING_ARGUMENT",Map.of("action",action));}}
+    /** The donor's tab list: first word = subcommands; warp/delwarp = own team's warps; player arguments = online names. */
+    private static final List<String> SUBCOMMANDS=List.of("accept","create","deny","disband","invite","invites","join","unjoin","kick","leave","promote","demote","info","sethome","delhome","home","settag","setdesc","rename","transfer","pvp","bank","blacklist","unblacklist","settings","enderchest","public","requests","setwarp","delwarp","warp","warps","ally","top","chat","setcolor","upgrades","quests","help");
+    private static final Set<String> PLAYER_ARGUMENT=Set.of("invite","kick","promote","demote","transfer","blacklist","unblacklist");
+    private static CompletableFuture<Suggestions> suggest(CommandContext<CommandSourceStack> context,SuggestionsBuilder builder){
+        String input=builder.getRemaining();int space=input.indexOf(' ');
+        if(space<0){String typed=input.toLowerCase(Locale.ROOT);for(String sub:SUBCOMMANDS)if(sub.startsWith(typed))builder.suggest(sub);return builder.buildFuture();}
+        String sub=input.substring(0,space).toLowerCase(Locale.ROOT),rest=input.substring(space+1);
+        if(rest.indexOf(' ')>=0)return builder.buildFuture();
+        ServerPlayer player=context.getSource().getPlayer();TeamsCore core=TeamsMod.core();
+        List<String> options=sub.equals("warp")||sub.equals("delwarp")?(player==null||core==null?List.of():core.warpNames(player)):PLAYER_ARGUMENT.contains(sub)?List.of(context.getSource().getServer().getPlayerNames()):List.of();
+        SuggestionsBuilder names=builder.createOffset(builder.getStart()+space+1);String typed=rest.toLowerCase(Locale.ROOT);
+        for(String option:options)if(option.toLowerCase(Locale.ROOT).startsWith(typed))names.suggest(option);
+        return names.buildFuture();
+    }
     private static String tail(String[] args,int start){return start>=args.length?"":String.join(" ",Arrays.copyOfRange(args,start,args.length));}
 }

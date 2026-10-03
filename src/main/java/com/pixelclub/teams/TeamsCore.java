@@ -43,8 +43,8 @@ public final class TeamsCore implements AutoCloseable {
     private long ticks;
     private volatile boolean ready;
     private record Prompt(long expires,Consumer<String> callback){}
-    private record Warmup(long at,ServerLevel origin,Vec3 position,ServerLevel target,double x,double y,double z,float yaw,float pitch,String kind){}
-    public static final class Refusal extends RuntimeException {public Refusal(String code){super(code);}}
+    private record Warmup(long at,ServerLevel origin,Vec3 position,ServerLevel target,double x,double y,double z,float yaw,float pitch,String kind,String name){}
+    public static final class Refusal extends RuntimeException {final Map<String,String> values;public Refusal(String code){this(code,Map.of());}public Refusal(String code,Map<String,String> values){super(code);this.values=values;}}
 
     public TeamsCore(MinecraftServer server,Settings settings)throws Exception {
         this.server=server;this.settings=settings;
@@ -76,7 +76,7 @@ public final class TeamsCore implements AutoCloseable {
         String worldKey=switch(action){case "sethome","home","setwarp","warp"->action;case "enderchest","ec"->"enderchest";default->null;};
         if(worldKey!=null&&settings.bool("world_restrictions.enabled",true)) {
             Object disabled=settings.value("world_restrictions.disabled_worlds."+worldKey);
-            if(disabled instanceof Collection<?> list&&list.stream().anyMatch(v->worldName(player.serverLevel()).equalsIgnoreCase(v.toString())))throw new Refusal("WORLD_DENIED");
+            if(disabled instanceof Collection<?> list&&list.stream().anyMatch(v->worldName(player.serverLevel()).equalsIgnoreCase(v.toString())))throw new Refusal("WORLD_DENIED",Map.of("feature",action,"world",worldName(player.serverLevel())));
         }
     }
     public static boolean authenticated(ServerPlayer player) {
@@ -103,7 +103,9 @@ public final class TeamsCore implements AutoCloseable {
     public void flag(ServerPlayer player,String flag,String bypass)throws Exception{if(!Access.flag(requireMember(player),player,flag,bypass))throw new Refusal("MEMBER_FLAG_DENIED");}
     public void success(ServerPlayer player,String text){player.sendSystemMessage(Texts.of(settings.message("prefix","&7[Team] ")+text));}
     public void storageFailed(Throwable error){for(int depth=0;error!=null&&depth<10;depth++,error=error.getCause())if(error instanceof SQLException){snapshots.failed();return;}}
-    public void refuse(ServerPlayer player,Throwable error){storageFailed(error);String code=error instanceof Refusal?error.getMessage():"STORAGE_"+error.getClass().getSimpleName();success(player,"&c"+settings.message(code.toLowerCase(Locale.ROOT),code));}
+    public void refuse(ServerPlayer player,Throwable error){storageFailed(error);if(error instanceof Refusal refusal)say(player,refusal.getMessage(),refusal.values,"&c");else success(player,"&cSTORAGE_"+error.getClass().getSimpleName());}
+    /** Donor messages.yml text for a port code (Messages), with its placeholders; the bare code only when the donor has no key. */
+    public void say(ServerPlayer player,String code,Map<String,String> values,String colour){String key=Messages.key(code,values,k->settings.message(k,null)!=null);String format=key==null?null:settings.message(key,null);if(format==null){success(player,colour+code);return;}player.sendSystemMessage(Texts.template(settings.message("prefix","&7[Team] ")+format,values,Map.of()));}
     public void safely(ServerPlayer player,Throwing task){try{task.run();}catch(Exception e){refuse(player,e);}}
     @FunctionalInterface public interface Throwing{void run()throws Exception;}
     public synchronized void joined(ServerPlayer player)throws Exception {
@@ -113,7 +115,7 @@ public final class TeamsCore implements AutoCloseable {
         snapshots.remember(player.getUUID(),player.getGameProfile().getName());
         refresh(player.getUUID());
     }
-    public synchronized void departed(ServerPlayer player){prompts.remove(player.getUUID());warmups.remove(player.getUUID());chatMode.remove(player.getUUID());spies.remove(player.getUUID());chests.close(player);}
+    public synchronized void departed(ServerPlayer player){warpNameCache.remove(player.getUUID());prompts.remove(player.getUUID());warmups.remove(player.getUUID());chatMode.remove(player.getUUID());spies.remove(player.getUUID());chests.close(player);}
     public void refresh(UUID player)throws Exception{Team previous=snapshots.subject(player).team();Optional<Team> current=store.teamOf(player);if(previous!=null&&(current.isEmpty()||previous.id()!=current.get().id()))snapshots.refreshTeam(previous.id());if(current.isPresent())snapshots.refreshTeam(current.get().id());}
     public void refreshTeam(int team)throws Exception{snapshots.refreshTeam(team);}
     public void invalidate(UUID player){prompts.remove(player);warmups.remove(player);chatMode.remove(player);chests.revoke(player);ServerPlayer online=server.getPlayerList().getPlayer(player);if(online!=null)online.closeContainer();}
@@ -250,25 +252,25 @@ public final class TeamsCore implements AutoCloseable {
         check(player,delete?"delhome":"sethome");flag(player,"can_set_home","home");Team team=requireTeam(player);
         if(delete)ensureChanged(store.updateTeam(team.id(),team.owner(),nullable("home_location",null,"home_server",null)));
         else {String location=serialize(player);if(location.length()>255||serverName().length()>255)throw new Refusal("INVALID_LOCATION");ensureChanged(paid(player,"sethome",true,()->store.updateTeam(team.id(),team.owner(),Map.of("home_location",location,"home_server",serverName()))));}
-        refreshTeam(team.id());success(player,"&aHOME_UPDATED");
+        refreshTeam(team.id());say(player,delete?"HOME_DELETED":"HOME_UPDATED",Map.of(),"&a");
     }
     public synchronized void setWarp(ServerPlayer player,String name,String password)throws Exception {
         check(player,"setwarp");elevated(player);Team team=requireTeam(player);
-        if(name.isBlank()||name.length()>32||password!=null&&password.length()>64||serverName().length()>64)throw new Refusal("INVALID_WARP");String location=serialize(player);if(location.length()>255)throw new Refusal("INVALID_LOCATION");ensureChanged(paid(player,"setwarp",true,()->store.setWarp(team.id(),name,location,serverName(),password,maxWarps(team))));success(player,"&aWARP_UPDATED");
+        if(name.isBlank()||name.length()>32||password!=null&&password.length()>64||serverName().length()>64)throw new Refusal("INVALID_WARP");String location=serialize(player);if(location.length()>255)throw new Refusal("INVALID_LOCATION");ensureChanged(paid(player,"setwarp",true,()->store.setWarp(team.id(),name,location,serverName(),password,maxWarps(team))));warpNameCache.clear();say(player,"WARP_UPDATED",Map.of("warp",name),"&a");
     }
-    public synchronized void deleteWarp(ServerPlayer player,String name)throws Exception {check(player,"delwarp");Team team=requireTeam(player);if(!Access.elevated(requireMember(player))&&!name.equalsIgnoreCase(player.getGameProfile().getName()))throw new Refusal("DENIED");ensureChanged(store.deleteWarp(team.id(),name));success(player,"&aWARP_DELETED");}
+    public synchronized void deleteWarp(ServerPlayer player,String name)throws Exception {check(player,"delwarp");Team team=requireTeam(player);if(!Access.elevated(requireMember(player))&&!name.equalsIgnoreCase(player.getGameProfile().getName()))throw new Refusal("DENIED");ensureChanged(store.deleteWarp(team.id(),name));warpNameCache.clear();say(player,"WARP_DELETED",Map.of("warp",name),"&a");}
     public synchronized void teleport(ServerPlayer player,String kind,String name,String password)throws Exception {
         check(player,kind);Team team=requireTeam(player);String location,serverId;
         if(kind.equals("home")){flag(player,"can_use_home","home");location=team.location();serverId=(String)team.field("home_server");}
-        else {Map<String,Object> warp=store.rows("team_warps","team_id",team.id()).stream().filter(row->name.equalsIgnoreCase(row.get("warp_name").toString())).findFirst().orElseThrow(()->new Refusal("NO_WARP"));location=(String)warp.get("location");serverId=(String)warp.get("server_name");String expected=(String)warp.get("password");if(expected!=null&&!expected.isEmpty()&&!expected.equals(password))throw new Refusal("WARP_PASSWORD_REQUIRED");}
+        else {Map<String,Object> warp=store.rows("team_warps","team_id",team.id()).stream().filter(row->name.equalsIgnoreCase(row.get("warp_name").toString())).findFirst().orElseThrow(()->new Refusal("NO_WARP",Map.of("warp",name)));location=(String)warp.get("location");serverId=(String)warp.get("server_name");String expected=(String)warp.get("password");if(expected!=null&&!expected.isEmpty()&&!expected.equals(password))throw new Refusal(password==null?"WARP_PASSWORD_REQUIRED":"WARP_PASSWORD_INCORRECT",Map.of("warp",name));}
         if(location==null||location.isEmpty())throw new Refusal("NO_HOME");if(serverId!=null&&!serverId.isEmpty()&&!serverId.equals(serverName()))throw new Refusal("REMOTE_SERVER_UNAVAILABLE");
         String[] fields=location.split(",",-1);if(fields.length!=6)throw new Refusal("INVALID_LOCATION");ServerLevel target=resolveWorld(fields[0]);if(target==null)throw new Refusal("WORLD_UNAVAILABLE");
         double x=Double.parseDouble(fields[1]),y=Double.parseDouble(fields[2]),z=Double.parseDouble(fields[3]);float yaw=Float.parseFloat(fields[4]),pitch=Float.parseFloat(fields[5]);
         if(!Double.isFinite(x)||!Double.isFinite(y)||!Double.isFinite(z)||!Float.isFinite(yaw)||!Float.isFinite(pitch)||Math.abs(x)>29_999_984||Math.abs(z)>29_999_984)throw new Refusal("INVALID_LOCATION");
-        boolean bypass=Access.bypass(player,kind+".cooldown");String key=kind+":"+player.getUUID();if(!bypass&&cooldowns.getOrDefault(key,0L)>System.currentTimeMillis())throw new Refusal("TELEPORT_COOLDOWN");
+        boolean bypass=Access.bypass(player,kind+".cooldown");String key=kind+":"+player.getUUID();long left=cooldowns.getOrDefault(key,0L)-System.currentTimeMillis();if(!bypass&&left>0)throw new Refusal("TELEPORT_COOLDOWN",Map.of("time",((left+999)/1000)+"s","seconds",String.valueOf((left+999)/1000)));
         if(!paid(player,kind,true,()->true))return;
         int delay=bypass?0:settings.integer(kind.equals("home")?"team_home.warmup_seconds":"team_warps.warmup_seconds",5)*20;
-        warmups.put(player.getUUID(),new Warmup(ticks+delay,player.serverLevel(),player.position(),target,x,y,z,yaw,pitch,kind));success(player,"&eTELEPORT_WARMUP");
+        warmups.put(player.getUUID(),new Warmup(ticks+delay,player.serverLevel(),player.position(),target,x,y,z,yaw,pitch,kind,name==null?"":name));say(player,"TELEPORT_WARMUP",Map.of("seconds",String.valueOf(delay/20)),"&e");
     }
     public String serialize(ServerPlayer player){return worldName(player.serverLevel())+","+player.getX()+","+player.getY()+","+player.getZ()+","+player.getYRot()+","+player.getXRot();}
     public String worldName(ServerLevel level) {
@@ -322,12 +324,21 @@ public final class TeamsCore implements AutoCloseable {
         if(entity instanceof ServerPlayer victim){Optional<Team> team=store.teamOf(victim.getUUID());if(team.isPresent()){Team t=team.get();store.updateTeam(t.id(),t.owner(),Map.of("deaths",((Number)t.field("deaths")).intValue()+1));}}
         if(entity instanceof ServerPlayer victim&&victim.getKillCredit() instanceof ServerPlayer killer){Optional<Team> team=store.teamOf(killer.getUUID()),other=store.teamOf(victim.getUUID());if(team.isPresent()&&(other.isEmpty()||team.get().id()!=other.get().id())){Team t=team.get();store.updateTeam(t.id(),t.owner(),Map.of("kills",((Number)t.field("kills")).intValue()+1));}}
     }
+    private final Map<UUID,Map.Entry<Long,List<String>>> warpNameCache=new HashMap<>();
+    /** Own team's warp names for /team warp tab-completion (donor parity); cached 5 s so typing does not query per key. */
+    public synchronized List<String> warpNames(ServerPlayer player){
+        long now=System.currentTimeMillis();var hit=warpNameCache.get(player.getUUID());if(hit!=null&&hit.getKey()>now)return hit.getValue();
+        List<String> names=List.of();
+        try{Optional<Team> team=ready?store.teamOf(player.getUUID()):Optional.empty();if(team.isPresent())names=store.rows("team_warps","team_id",team.get().id()).stream().map(row->String.valueOf(row.get("warp_name"))).toList();}
+        catch(Exception e){storageFailed(e);}
+        warpNameCache.put(player.getUUID(),Map.entry(now+5000,names));return names;
+    }
     public synchronized void tick()throws Exception {
         ticks++;long now=System.currentTimeMillis();prompts.entrySet().removeIf(entry->entry.getValue().expires()<now);
         Iterator<Map.Entry<UUID,Warmup>> iterator=warmups.entrySet().iterator();while(iterator.hasNext()){
             Map.Entry<UUID,Warmup> entry=iterator.next();ServerPlayer player=server.getPlayerList().getPlayer(entry.getKey());Warmup warm=entry.getValue();
-            if(player==null||player.serverLevel()!=warm.origin()||player.position().distanceToSqr(warm.position())>1||!authenticated(player)){iterator.remove();if(player!=null)success(player,"&cTELEPORT_CANCELLED");continue;}
-            if(ticks>=warm.at()){iterator.remove();try{check(player,warm.kind());if(warm.kind().equals("home"))flag(player,"can_use_home","home");player.teleportTo(warm.target(),warm.x(),warm.y(),warm.z(),warm.yaw(),warm.pitch());cooldowns.put(warm.kind()+":"+player.getUUID(),now+settings.integer(warm.kind().equals("home")?"team_home.cooldown_seconds":"team_warps.cooldown_seconds",5)*1000L);success(player,"&aTELEPORTED");}catch(Exception e){refuse(player,e);}}
+            if(player==null||player.serverLevel()!=warm.origin()||player.position().distanceToSqr(warm.position())>1||!authenticated(player)){iterator.remove();if(player!=null)say(player,"TELEPORT_CANCELLED",Map.of(),"&c");continue;}
+            if(ticks>=warm.at()){iterator.remove();try{check(player,warm.kind());if(warm.kind().equals("home"))flag(player,"can_use_home","home");player.teleportTo(warm.target(),warm.x(),warm.y(),warm.z(),warm.yaw(),warm.pitch());cooldowns.put(warm.kind()+":"+player.getUUID(),now+settings.integer(warm.kind().equals("home")?"team_home.cooldown_seconds":"team_warps.cooldown_seconds",5)*1000L);say(player,warm.kind().equals("home")?"TELEPORTED_HOME":"TELEPORTED_WARP",Map.of("warp",warm.name()),"&a");}catch(Exception e){refuse(player,e);}}
         }
         chests.tick();
         if(ticks%Math.max(1,settings.integer("settings.glow.check_interval",20))==0)glowTick();
