@@ -1,9 +1,10 @@
 # justTeams candidate readiness, 2026-10-03
 
-Candidate, not cutover GO. Application source83cdaa4; SHA256
-`4ad8e0ac9888c671cc2aabdf98b8d126d2512956edd05c32c48d5171ea1a3f87`.
+Candidate, not cutover GO. Application source4d1d7f9; SHA256
+`fa1343d04899f00e0a231ab0a78eaeccfb41e395043b3b379afdba90b309c9ed`.
 Immutable local artifact:
-`F:/Pixelclub/scratch/justteams-cutover-20261002/artifacts/JustTeams-2.5.5+pxc.1-4ad8e0ac.jar`.
+`F:/Pixelclub/scratch/justteams-cutover-20261002/artifacts/JustTeams-2.5.5+pxc.1-fa1343d0.jar`.
+Private prerelease `v2.5.5-pxc.1-rc1`; remote asset digest verified equal. Build/tests108 passed.
 No justTeams PRD/shared-DEV placement or restart performed.
 
 ## Covered evidence
@@ -11,7 +12,8 @@ No justTeams PRD/shared-DEV placement or restart performed.
 Native own-loopback rig, real Impactor wallet persistence and actual LuckPerms API,
 synthetic actors/accounts only. Seven required mixins loaded. Matrix details and failed
 harness attempts remain in [runtime-digest.md](runtime-digest.md); QA helpers in `qa/`.
-State evidence does not imply authenticated real-player or rendered-client evidence.
+Broad native matrix below is pinned4ad8e0ac; finalfa1343d0 adds narrow donor configuration
+fixes and is awaiting targeted native acceptance. State evidence does not imply rendered-client evidence.
 
 - Forty randomized decimal transfers conserve personal/team totals and opening.005
   residue; pending0 and independent cold readback. Window05:22:16-05:23:23ICT,
@@ -35,10 +37,13 @@ State evidence does not imply authenticated real-player or rendered-client evide
 
 ## Remaining acceptance
 
-1. Actual pxc-auth unauthenticated/authenticated session; Carpet's explicit loopback
-   testActors bypass is not that proof. Actual rendered GUI/text/tag/glow acceptance.
-2. TAB-owned outline colour integration that preserves rank prefix/suffix and membership.
-   Entity glow flags are tested; no competing scoreboard team should be introduced.
+1. Actual native TCP pxc-auth UNAUTHENTICATED denial -> /login PASSWORD AUTHENTICATED ->
+   reversible team action passed on4ad with target Pack1.8.12/Pxc0.1.5/LP5.4.140 and no
+   testActors flag. Finalfa candidate needs focused cap/reload/tiers/refund/auth smoke
+   and actual rendered GUI/text/tag acceptance; Carpet bypass is not session proof.
+2. Exact donor SFTP07:33ICT confirms settings.glow.enabled=false. Preserve disabled gate.
+   TAB-owned outline colour seam is future parity; entity flags are tested. No competing
+   scoreboard team should be introduced or inactive feature enabled without Kraus.
 3. Target full bundle on exclusive DEV after Tools releases baseline, current Pack/PAPI/
    auth/LP/world roster; observed12000-tick watchdog with pending0/provider/health.
 4. Coordinator current full world/registry manifest including SW6 and nested live End,
@@ -51,5 +56,7 @@ addon chest rows atomically and refuses unsettled obligations. Rollback preserve
 legitimate SQL/accounts and completed journals; no old money snapshot overwrite.
 
 Historical review docs retain findings at their original checkpoints. Current receipt
-and final-surface fixes are in review-receipts-v2.md/review-final-surfaces-v2.md, with the
-right-sort enabled gate and Creative overflow fix applied in source83cdaa4.
+and final-surface fixes are in review-receipts-v2.md/review-final-surfaces-v2.md. Source4d1d7f9
+also preserves integer YAML tier keys, atomic six-file reload, finite uncapped/reloaded
+bank cap and bounded historical compensation. Focused source refute found no new HIGH/MEDIUM.
+No donor values or existing balances were changed.

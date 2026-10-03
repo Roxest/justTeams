@@ -3,10 +3,12 @@
 NOT GO. Based on the 2026-10-03 living note `00-now/justTeams Fabric cutover — ทำต่อจากตรงนี้.md`.
 Source/artifact readiness is separate from placement: **no justTeams PRD placement done**.
 GUI may still change; pin final source/overlay/converter/full-bundle hashes together.
-Latest application candidate SHA256: **4ad8e0ac9888c671cc2aabdf98b8d126d2512956edd05c32c48d5171ea1a3f87**,
-application source83cdaa4. Immutable artifact:
-`F:/Pixelclub/scratch/justteams-cutover-20261002/artifacts/JustTeams-2.5.5+pxc.1-4ad8e0ac.jar`.
-This is the native-tested candidate, still awaiting acceptance gates. This document authorizes no server change.
+Latest application candidate SHA256: **fa1343d04899f00e0a231ab0a78eaeccfb41e395043b3b379afdba90b309c9ed**,
+application source4d1d7f9, private prereleasev2.5.5-pxc.1-rc1 (remote digest verified).
+Immutable artifact:
+`F:/Pixelclub/scratch/justteams-cutover-20261002/artifacts/JustTeams-2.5.5+pxc.1-fa1343d0.jar`.
+Broad native matrix/auth passed prior4ad; final candidate targeted acceptance still pending.
+This document authorizes no server change.
 
 Immutable loader-specific originals, retained outside every server directory:
 
