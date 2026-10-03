@@ -133,6 +133,9 @@ public final class ColdChests {
         return new Config(url, values.getProperty("username"), values.getProperty("password"), driver, prefix);
     }
 
+    private static boolean keepOriginal(JsonObject exported) throws Exception {
+        return ColdFiles.longInteger(exported.get("generation")) == 1 && ColdFiles.hash(exported, "original_sha256", true) != null;
+    }
     private static ConnectionFactory factory(Config config, ColdGate gate, BeforeCommit extra) {
         return () -> {
             try {
@@ -216,7 +219,10 @@ public final class ColdChests {
         ConnectionFactory factory = factory(config, gate, connection -> {
             if (!nativeRows(connection, true).isEmpty()) throw new IllegalArgumentException();
             Map<Integer, String> written = donorRows(connection, config.prefix(), true);
-            for (int id : reversed.keySet()) if (!Objects.equals(written.get(id), ColdFiles.text(reversed.get(id), "reverse_blob"))) throw new IllegalArgumentException();
+            for (int id : reversed.keySet()) {
+                boolean keep = keepOriginal(exported.get(id)); String donor = written.get(id);
+                if (keep ? donor == null || !ColdFiles.sha(donor).equals(ColdFiles.hash(exported.get(id), "original_sha256", false)) : !Objects.equals(donor, ColdFiles.text(reversed.get(id), "reverse_blob"))) throw new IllegalArgumentException();
+            }
         });
         Map<Integer, NativeRow> current;
         try (FileChannel proofFile = newOutput(options.output()); Connection connection = factory.open()) {
@@ -236,7 +242,9 @@ public final class ColdChests {
                 for (NativeRow row : current.values()) {
                     String blob = ColdFiles.text(reversed.get(row.teamId()), "reverse_blob");
                     String table = donorTable(config.prefix());
-                    if (originals.containsKey(row.teamId())) update(connection, "UPDATE " + table + " SET inventory_data=? WHERE team_id=?", blob, row.teamId());
+                    // Import never rewrites donor rows; a generation-1 imported row was never saved natively, so its exact original bytes stay.
+                    if (keepOriginal(exported.get(row.teamId()))) { }
+                    else if (originals.containsKey(row.teamId())) update(connection, "UPDATE " + table + " SET inventory_data=? WHERE team_id=?", blob, row.teamId());
                     else update(connection, "INSERT INTO " + table + " (team_id,inventory_data) VALUES (?,?)", row.teamId(), blob);
                     if (update(connection, "DELETE FROM " + ADDON + " WHERE team_id=? AND generation=? AND inventory_json=?", row.teamId(), row.generation(), row.json()) != 1) throw new SQLException();
                 }

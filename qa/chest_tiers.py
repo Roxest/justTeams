@@ -246,7 +246,11 @@ def relogin():
     assert q['JTMoneyOwner']['actorQuarantined'] and not q['JTMoneyMember']['actorQuarantined']
     assert 'pending=1' in after['status'], after['status']
     # Member must be refused the team chest while the team is frozen.
-    qa('core ec JTMoneyMember')
+    try:
+        qa('core ec JTMoneyMember')
+        raise AssertionError('member opened a frozen team chest')
+    except RuntimeError as error:
+        assert 'CHEST_RECOVERY_REQUIRED' in str(error), error
     time.sleep(1)
     refused = state('sqlfault-member-ec')
     assert not actor(refused, 'JTMoneyMember')['menu'].endswith('TeamChests$Menu')

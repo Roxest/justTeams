@@ -101,10 +101,19 @@ class ColdChestsTest {
         assertTrue(ColdFiles.read(nativeExport).json().get("cold_verified").getAsBoolean());
         Path reverse = reverse(nativeExport);
         assertEquals(0, run("rollback", nativeExport, reverse, root.resolve("rollback.json"), true));
-        assertEquals(blob("\n"), original(1)); assertEquals(blob("\n"), original(second));
+        assertEquals(blob("\r\n"), original(1), "unchanged generation-1 import keeps exact donor bytes"); assertEquals(blob("\n"), original(second));
         assertTrue(store.chest(1).isEmpty()); assertTrue(store.chest(second).isEmpty());
         assertEquals("DONE", store.operation("complete").orElseThrow().phase());
         assertEquals(1, run("rollback", nativeExport, reverse, root.resolve("again.json"), true));
+    }
+    @Test void rollbackWritesReverseBlobForNativelyChangedImportedRow() throws Exception {
+        donor(1, blob("\r\n")); Path[] input = forward(Map.of(1, blob("\r\n")));
+        assertEquals(0, run("import", input[0], input[1], root.resolve("import.json"), true));
+        var imported = store.chest(1).orElseThrow();
+        assertTrue(store.saveChest(1, 1, imported.inventoryJson(), imported.originalSha256(), imported.generation()));
+        Path nativeExport = root.resolve("native.json"); assertEquals(0, run("export-native", null, null, nativeExport, false));
+        assertEquals(0, run("rollback", nativeExport, reverse(nativeExport), root.resolve("rollback.json"), true));
+        assertEquals(blob("\n"), original(1)); assertTrue(store.chest(1).isEmpty());
     }
     @Test void rollbackRejectsNativeGenerationDriftSourceHashDriftAndReverseBlobHashDrift() throws Exception {
         donor(1, blob("\r\n")); Path[] input = forward(Map.of(1, blob("\r\n")));
