@@ -58,11 +58,14 @@ public final class TeamChests {
         if(core.store.isFrozen(team.id(),player.getUUID()))throw new TeamsCore.Refusal("CHEST_RECOVERY_REQUIRED");
         if(leases.containsKey(team.id()))throw new TeamsCore.Refusal("CHEST_IN_USE");
         Chest record=core.store.chest(team.id()).orElse(null);List<ItemStack> items;String original=null;long generation=0;
-        if(record!=null){items=NativeChestCodec.decode(record.inventoryJson(),core.server.registryAccess());original=record.originalSha256();generation=record.generation();}
+        if(record!=null){items=new ArrayList<>(NativeChestCodec.decode(record.inventoryJson(),core.server.registryAccess()));original=record.originalSha256();generation=record.generation();}
         else {
             if(core.store.rows("team_enderchest","team_id",team.id()).stream().anyMatch(row->!Objects.toString(row.get("inventory_data"),"").isEmpty()))throw new TeamsCore.Refusal("CHEST_CONVERSION_MISSING");
-            int rows=core.settings.integer("team_upgrades.tiers."+team.tier()+".enderchest_rows",core.settings.integer("team_enderchest.rows",3));items=new ArrayList<>(Collections.nCopies(Math.max(1,Math.min(6,rows))*9,ItemStack.EMPTY));
+            items=new ArrayList<>();
         }
+        int rows=core.settings.integer("team_upgrades.tiers."+team.tier()+".enderchest_rows",core.settings.integer("team_enderchest.rows",3));
+        // Paid tier upgrades add empty capacity to persisted chests. A later configuration decrease must not discard owned items.
+        while(items.size()<Math.max(1,Math.min(6,rows))*9)items.add(ItemStack.EMPTY);
         List<ItemStack> inventory=items;String sourceHash=original;long sourceGeneration=generation;
         java.util.concurrent.Callable<Boolean> action=()->{
             // The fee callback must not replace another lease acquired while external money was settling.
