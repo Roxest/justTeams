@@ -8,7 +8,34 @@ import java.util.*;
 
 public final class Access {
     private Access(){}
-    public static boolean command(ServerPlayer player,String action){String node=switch(action){case "tag","settag"->"settag";case "description","setdesc"->"setdescription";case "ec"->"enderchest";case "msg","teammsg"->"teammsg";case "create","invite","accept","deny","join","leave","disband","kick","promote","demote","transfer","bank","home","sethome","warp","setwarp","delwarp","warps","enderchest","top","chat","info","help","pvp","public","quests"->action;default->null;};return node==null||Permissions.check(player.createCommandSourceStack(),"justteams.command."+node,true);}
+    public static boolean command(ServerPlayer player,String action){String node=switch(action){case "tag","settag"->"settag";case "description","setdesc"->"setdescription";case "ec"->"enderchest";case "msg","teammsg"->"teammsg";case "create","invite","accept","deny","join","leave","disband","kick","promote","demote","transfer","bank","home","sethome","warp","setwarp","delwarp","warps","enderchest","top","chat","info","help","pvp","public","quests"->action;default->null;};return node==null||commandNode(player,"justteams.command."+node);}
+    /** plugin.yml defaults of the Bukkit 2.5.5 donor: every justteams.command.* node is default true except these. */
+    private static final Set<String> DEFAULT_OP=Set.of("justteams.command.chat","justteams.command.warps");
+    /**
+     * Bukkit semantics: an explicit LuckPerms value wins, an unset node falls back to the plugin.yml default.
+     * On Arclight a fabric-permissions check is answered by Bukkit hasPermission, and with the plugin gone
+     * nothing registers those defaults any more, so every unset node read as op-only: /team top DENIED for
+     * players on PRD 10-03 (LuckPerms grants 27 command nodes by name, not top/help/quests).
+     */
+    static boolean commandNode(ServerPlayer player,String node){
+        boolean fallback=!DEFAULT_OP.contains(node)||player.server.getPlayerList().isOp(player.getGameProfile());
+        String lp=luckPermsValue(player,node);
+        if(lp==null)return Permissions.check(player.createCommandSourceStack(),node,fallback);
+        return lp.equals("UNDEFINED")?fallback:lp.equals("TRUE");
+    }
+    /** LuckPerms Tristate name (TRUE / FALSE / UNDEFINED, own or inherited); null when LuckPerms is not there. */
+    static String luckPermsValue(ServerPlayer player,String node){
+        try{
+            Object api=Class.forName("net.luckperms.api.LuckPermsProvider").getMethod("get").invoke(null);
+            Object users=Class.forName("net.luckperms.api.LuckPerms").getMethod("getUserManager").invoke(api);
+            Object user=Class.forName("net.luckperms.api.model.user.UserManager").getMethod("getUser",UUID.class).invoke(users,player.getUUID());
+            if(user==null)return "UNDEFINED";
+            Object cache=Class.forName("net.luckperms.api.model.PermissionHolder").getMethod("getCachedData").invoke(user);
+            Object data=Class.forName("net.luckperms.api.cacheddata.CachedDataManager").getMethod("getPermissionData").invoke(cache);
+            Object state=Class.forName("net.luckperms.api.cacheddata.CachedPermissionData").getMethod("checkPermission",String.class).invoke(data,node);
+            return ((Enum<?>)state).name();
+        }catch(ReflectiveOperationException|RuntimeException|LinkageError e){return null;}
+    }
     public static boolean admin(CommandSourceStack source){return Permissions.check(source,"justteams.admin",2);}
     public static boolean node(ServerPlayer player,String node,boolean fallback){return Permissions.check(player.createCommandSourceStack(),node,fallback);}
     public static boolean bypass(ServerPlayer player,String action){return Permissions.check(player.createCommandSourceStack(),"justteams.bypass."+action,2);}
