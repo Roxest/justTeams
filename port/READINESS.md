@@ -1,10 +1,11 @@
 # justTeams candidate readiness, 2026-10-03
 
-Candidate, not cutover GO. Application source4d1d7f9; SHA256
-`fa1343d04899f00e0a231ab0a78eaeccfb41e395043b3b379afdba90b309c9ed`.
+Candidate, not cutover GO. Application source10a879b; SHA256
+`6864630f29a2b33cc0299e3cfcbca4335a1916e459c8208b8460165835567487`.
 Immutable local artifact:
-`F:/Pixelclub/scratch/justteams-cutover-20261002/artifacts/JustTeams-2.5.5+pxc.1-fa1343d0.jar`.
-Private prerelease `v2.5.5-pxc.1-rc1`; remote asset digest verified equal. Build/tests108 passed.
+`F:/Pixelclub/scratch/justteams-cutover-20261002/artifacts/JustTeams-2.5.5+pxc.1-6864630f.jar`.
+Earlier private prerelease `v2.5.5-pxc.1-rc1`/fa1343d0 is superseded by the paid-chest-capacity fix.
+Build/tests108 passed; focused chest-growth source refute found no HIGH/MEDIUM.
 No justTeams PRD/shared-DEV placement or restart performed.
 
 ## Covered evidence
@@ -12,8 +13,10 @@ No justTeams PRD/shared-DEV placement or restart performed.
 Native own-loopback rig, real Impactor wallet persistence and actual LuckPerms API,
 synthetic actors/accounts only. Seven required mixins loaded. Matrix details and failed
 harness attempts remain in [runtime-digest.md](runtime-digest.md); QA helpers in `qa/`.
-Broad native matrix below is pinned4ad8e0ac; finalfa1343d0 adds narrow donor configuration
-fixes and is awaiting targeted native acceptance. State evidence does not imply rendered-client evidence.
+Broad native matrix below is pinned4ad8e0ac; fa1343d0 donor configuration fixes passed
+targeted native auth/cap/reload/tier/refund/provider and cold readback. Current6864630f
+adds paid chest growth;27->36 with rich stock moved to new slot33/gen17->19/cursor0/pending0
+and exact cold readback passed. State evidence does not imply rendered-client evidence.
 
 - Forty randomized decimal transfers conserve personal/team totals and opening.005
   residue; pending0 and independent cold readback. Window05:22:16-05:23:23ICT,
@@ -39,13 +42,19 @@ fixes and is awaiting targeted native acceptance. State evidence does not imply 
 
 1. Actual native TCP pxc-auth UNAUTHENTICATED denial -> /login PASSWORD AUTHENTICATED ->
    reversible team action passed on4ad with target Pack1.8.12/Pxc0.1.5/LP5.4.140 and no
-   testActors flag. Finalfa candidate needs focused cap/reload/tiers/refund/auth smoke
-   and actual rendered GUI/text/tag acceptance; Carpet bypass is not session proof.
+   testActors flag. Finalfa cap/reload/tiers/refund/.01provider pair passed real TCP auth.
+   Current686 still requires rendered GUI and45/54/shrink custody acceptance. Approved
+   eyes1.16 genuinely crypto-rejected both own AC1.18.8 and target-disk1.18.9; transient
+   client connected=true was refuted by server NOT_CONNECTED/coreAuthenticatedfalse.
+   Matching approved client/server context is required, no spoof/control bypass.
 2. Exact donor SFTP07:33ICT confirms settings.glow.enabled=false. Preserve disabled gate.
    TAB-owned outline colour seam is future parity; entity flags are tested. No competing
    scoreboard team should be introduced or inactive feature enabled without Kraus.
-3. Target full bundle on exclusive DEV after Tools releases baseline, current Pack/PAPI/
-   auth/LP/world roster; observed12000-tick watchdog with pending0/provider/health.
+3. Tools explicitly returned DEV baseline/root lease09:04ICT; current canary preflight
+   found existing JustTeams disk SHA002a0e76... differs historical162df original, so preserve
+   exact current baseline for rollback. No root DEV stage yet. Need target full bundle/
+   world roster/real auth/rendered acceptance. Own686 watchdog PASS12051 actual ticks,
+   n21/30s,08:40:16-08:50:18ICT; every ready/snapshot/provider sample healthy.
 4. Coordinator current full world/registry manifest including SW6 and nested live End,
    verified backup+isolated restore, fresh cold source, exact private donor settings,
    forward/reverse/cold CLI rehearsals, and coupled AE/Tools/Spawner/AJ collector gates.
@@ -60,3 +69,6 @@ and final-surface fixes are in review-receipts-v2.md/review-final-surfaces-v2.md
 also preserves integer YAML tier keys, atomic six-file reload, finite uncapped/reloaded
 bank cap and bounded historical compensation. Focused source refute found no new HIGH/MEDIUM.
 No donor values or existing balances were changed.
+Source10a879b also expands existing persisted chests to current paid-tier capacity,
+preserving all old items and never truncating on configuration decrease. No-op open/
+close need not persist empty capacity; handled transaction does, and cold reopen grows safely.
