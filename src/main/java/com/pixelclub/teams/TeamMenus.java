@@ -102,11 +102,11 @@ public final class TeamMenus {
     public void confirm(ServerPlayer player,String title,TeamsCore.Throwing action)throws Exception {Screen menu=new Screen(player,"confirm-gui",27,title);menu.button("confirm",11,"LIME_CONCRETE","&aConfirm",p->{p.closeContainer();action.run();});menu.button("cancel",15,"RED_CONCRETE","&cCancel",this::team);menu.open();}
     public void warps(ServerPlayer player)throws Exception {core.check(player,"warps");Team team=core.requireTeam(player);Screen menu=new Screen(player,"warps-gui",54,"Team warps");List<Map<String,Object>> warps=core.store.rows("team_warps","team_id",team.id());int slot=10;for(var warp:warps){if(slot>=45)break;String name=warp.get("warp_name").toString();int actual=slot++;menu.direct(actual,"ENDER_PEARL",name,List.of(Objects.toString(warp.get("location"),"")),p->{String password=(String)warp.get("password");if(password!=null&&!password.isEmpty())core.prompt(p,"Warp password",text->core.safely(p,()->core.teleport(p,"warp",name,text)));else core.teleport(p,"warp",name,null);});menu.right(actual,p->confirm(p,"Delete warp",()->{core.deleteWarp(p,name);warps(p);}));}back(menu,49);menu.open();}
     public void upgrades(ServerPlayer player)throws Exception {
-        core.check(player,"upgrade");Team team=core.requireTeam(player);Screen menu=new Screen(player,"upgrades-gui",45,"Team upgrades",UpgradeView.values(core.settings,team.tier(),team.balance()));menu.button("current-tier",11,"IRON_INGOT","&aTier "+team.tier(),null);
+        core.check(player,"upgrade");Team team=core.requireTeam(player);if(!core.settings.bool("team_upgrades.enabled",true))throw new TeamsCore.Refusal("TEAM_UPGRADES_DISABLED");Screen menu=new Screen(player,"upgrades-gui",45,"Team upgrades",UpgradeView.values(core.settings,team.tier(),team.balance()));menu.button("current-tier",11,"IRON_INGOT","&aTier "+team.tier(),null);
         if(UpgradeView.available(core.settings,team.tier())){
             int next=team.tier()+1;menu.button("next-tier",15,"GOLD_INGOT","&eTier "+next,null);
             if(team.owner().equals(player.getUUID()))menu.button("upgrade-button",22,"NETHER_STAR","&aUpgrade",p->confirm(p,"Upgrade",()->core.upgrade(p)));
-            else menu.button("upgrade-button-locked",22,"RED_STAINED_GLASS_PANE","&cOwner only",null);
+            else menu.button("upgrade-button-locked",22,"RED_STAINED_GLASS_PANE","&cOwner only",p->{throw new TeamsCore.Refusal("NOT_OWNER");});
         }else menu.button("max-tier",15,"DIAMOND_BLOCK","&aMaximum tier",null);
         back(menu,40);menu.open();
     }
