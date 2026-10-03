@@ -39,7 +39,7 @@ public final class TeamCommands {
      * Arclight copies vanilla /team into the Bukkit command map before this mod registers, so the bare label keeps
      * vanilla's op-only permission. Release only that exact wrapper (node identity); any plugin's claim is left alone.
      */
-    public static String releaseBukkitTeamLabel(){
+    public static String releaseBukkitTeamLabel(Object commands,CommandDispatcher<CommandSourceStack> dispatcher){
         try{
             Object map=commandMap();Field field=null;
             for(Class<?> type=map.getClass();type!=null&&field==null;type=type.getSuperclass())try{field=type.getDeclaredField("knownCommands");}catch(NoSuchFieldException ignored){}
@@ -52,7 +52,18 @@ public final class TeamCommands {
             if(node==null)return "team=UNVERIFIED(no node field)";
             node.setAccessible(true);
             if(vanillaTeam==null||node.get(entry)!=vanillaTeam)return "team=kept(foreign VanillaCommandWrapper)";
-            known.remove("team",entry);return "team=released(vanilla wrapper)";
+            CommandNode<CommandSourceStack> ours=dispatcher.getRoot().getChild("team");
+            if(ours==null||ours==vanillaTeam)return "team=UNVERIFIED(own node missing)";
+            // Same wrapper type Arclight builds for every Brigadier root (as /t has), but around this mod's node.
+            for(var constructor:entry.getClass().getDeclaredConstructors()){
+                Class<?>[] types=constructor.getParameterTypes();
+                if(types.length==2&&types[0].isInstance(commands)&&types[1].isAssignableFrom(ours.getClass())){
+                    constructor.setAccessible(true);Object wrapper=constructor.newInstance(commands,ours);
+                    if(!known.replace("team",entry,wrapper))return "team=UNVERIFIED(map changed)";
+                    return "team=released(vanilla wrapper)->own wrapper";
+                }
+            }
+            return "team=UNVERIFIED(no wrapper constructor)";
         }catch(ReflectiveOperationException|RuntimeException e){return "team=UNVERIFIED("+e.getClass().getSimpleName()+")";}
     }
     /** Owner of each bare label in the Bukkit command map, for the boot log. */
