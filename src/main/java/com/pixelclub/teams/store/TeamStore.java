@@ -493,7 +493,7 @@ public final class TeamStore {
 
     public synchronized BankResult mutateBank(String opid, int teamId, UUID player, double delta, double maxBalance, boolean requireWithdraw, boolean bypass) throws SQLException {
         requireOpid(opid);
-        if (!Double.isFinite(delta) || delta == 0 || !Double.isFinite(maxBalance) || maxBalance < 0) throw new IllegalArgumentException("Invalid bank amount/cap");
+        if (!Double.isFinite(delta) || delta == 0 || !Double.isFinite(maxBalance)) throw new IllegalArgumentException("Invalid bank amount/cap");
         Objects.requireNonNull(player);
         return transaction(connection -> {
             Optional<Team> team = team(connection, teamId, true);
@@ -515,14 +515,15 @@ public final class TeamStore {
             else if (isFrozen(connection, teamId, player)) rejection = "FROZEN";
             else if (member.isEmpty() || member.get().teamId() != teamId) rejection = "NOT_MEMBER";
             else if (requireWithdraw && !bypass && !member.get().flag("can_withdraw")) rejection = "WITHDRAW_DENIED";
-            else if (delta > 0 && balance + delta > maxBalance) rejection = "CAP";
+            else if (!Double.isFinite(balance + delta)) rejection = "INVALID_RESULT";
+            else if (delta > 0 && maxBalance > 0 && balance + delta > maxBalance) rejection = "CAP";
             else if (balance + delta < 0) rejection = "UNDERFLOW";
             if (rejection != null) {
                 String payload = Json.put(operation.payload(), "rejection", Json.string(rejection));
                 Operation rejected = writeOperation(connection, operation, "REJECTED", payload);
                 return new BankResult(false, false, balance, rejected, rejection);
             }
-            int changed = execute(connection, "UPDATE " + table("teams") + " SET balance=balance+? WHERE id=? AND balance+?>=0 AND (?<=0 OR balance+?<=?)", delta, teamId, delta, delta, delta, maxBalance);
+            int changed = execute(connection, "UPDATE " + table("teams") + " SET balance=balance+? WHERE id=? AND balance+?>=0 AND (?<=0 OR ?<=0 OR balance+?<=?)", delta, teamId, delta, delta, maxBalance, delta, maxBalance);
             if (changed != 1) throw new SQLException("Conditional bank update changed no row after locks");
             double after = team(connection, teamId, false).orElseThrow(() -> new SQLException("Team vanished during bank update")).balance();
             String payload = Json.put(operation.payload(), "bankBalanceBefore", Double.toString(balance));

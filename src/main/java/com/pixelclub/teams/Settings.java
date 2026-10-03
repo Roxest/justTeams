@@ -11,7 +11,8 @@ import java.util.*;
 /** Reads the donor's YAML without moving secrets into logs or generating a different economy. */
 public final class Settings {
     private final Path folder;
-    private Map<String,Object> config = Map.of(), messages = Map.of(), gui = Map.of(), quests = Map.of(), placeholders=Map.of(),commands=Map.of();
+    private record State(Map<String,Object> config,Map<String,Object> messages,Map<String,Object> gui,Map<String,Object> quests,Map<String,Object> placeholders,Map<String,Object> commands) {}
+    private volatile State state=new State(Map.of(),Map.of(),Map.of(),Map.of(),Map.of(),Map.of());
     public Settings(Path folder) { this.folder = folder; }
     public synchronized void load() throws IOException {
         Files.createDirectories(folder);
@@ -24,14 +25,11 @@ public final class Settings {
                 }
             }
         }
-        config = read(folder.resolve("config.yml"));
-        messages = read(folder.resolve("messages.yml"));
-        gui = read(folder.resolve("gui.yml"));
-        quests = read(folder.resolve("quests.yml"));
-        placeholders = read(folder.resolve("placeholders.yml"));
-        commands = read(folder.resolve("commands.yml"));
-        if (!Double.isFinite(number("team_bank.max_balance", -1)) || number("team_bank.max_balance", -1) <= 0)
-            throw new IOException("team_bank.max_balance must be explicitly positive");
+        Map<String,Object> config=read(folder.resolve("config.yml"));
+        State next=new State(config,read(folder.resolve("messages.yml")),read(folder.resolve("gui.yml")),read(folder.resolve("quests.yml")),read(folder.resolve("placeholders.yml")),read(folder.resolve("commands.yml")));
+        if (!Double.isFinite(number(config,"team_bank.max_balance", -1)))
+            throw new IOException("team_bank.max_balance must be finite");
+        state=next;
     }
     @SuppressWarnings("unchecked") private static Map<String,Object> read(Path file) throws IOException {
         LoaderOptions options = new LoaderOptions();
@@ -45,11 +43,12 @@ public final class Settings {
         } catch (IOException e) { throw e; }
         catch (RuntimeException e) { throw new IOException("YAML rejected in " + file.getFileName() + " (" + e.getClass().getSimpleName() + ")"); }
     }
-    public Object value(String key) { return lookup(config, key); }
+    public Object value(String key) { return lookup(state.config(), key); }
     public String text(String key, String fallback) { Object v=value(key); return v==null?fallback:String.valueOf(v); }
     public String first(String fallback, String... keys) { for(String key:keys) if(value(key)!=null) return text(key,fallback); return fallback; }
-    public double number(String key,double fallback) {
-        Object v=value(key); if(v==null)return fallback;
+    public double number(String key,double fallback) {return number(state.config(),key,fallback);}
+    private static double number(Map<String,Object> config,String key,double fallback) {
+        Object v=lookup(config,key); if(v==null)return fallback;
         try { return v instanceof Number n?n.doubleValue():Double.parseDouble(v.toString()); }
         catch (RuntimeException e) { throw new IllegalArgumentException("invalid numeric setting: " + key); }
     }
@@ -62,16 +61,20 @@ public final class Settings {
     }
     public boolean itemCostEnabled() { return bool("feature_costs.enabled",true)&&bool("feature_costs.items.enabled",false); }
     public boolean enabled(String feature) { return bool("features."+feature,true); }
-    public String message(String key,String fallback) { Object v=lookup(messages,key); return v==null?fallback:v.toString(); }
-    public Map<String,Object> gui() { return gui; }
-    public Map<String,Object> quests() { return quests; }
-    public String command(String key,String fallback){Object value=lookup(commands,key);return value==null?fallback:value.toString();}
+    public String message(String key,String fallback) { Object v=lookup(state.messages(),key); return v==null?fallback:v.toString(); }
+    public Map<String,Object> gui() { return state.gui(); }
+    public Map<String,Object> quests() { return state.quests(); }
+    public String command(String key,String fallback){Object value=lookup(state.commands(),key);return value==null?fallback:value.toString();}
     public boolean commandAlias(String alias){return command("command-aliases."+alias+".enabled",alias.startsWith("party")?"false":"true").equalsIgnoreCase("true");}
-    public String placeholder(String key,String fallback){Object value=lookup(placeholders,key);return value==null?fallback:value.toString();}
+    public String placeholder(String key,String fallback){Object value=lookup(state.placeholders(),key);return value==null?fallback:value.toString();}
     public Path folder() { return folder; }
     private static Object lookup(Map<String,Object> root,String key) {
         Object current=root;
-        for(String part:key.split("\\.")) { if(!(current instanceof Map<?,?> map))return null;current=map.get(part); }
+        for(String part:key.split("\\.")) {
+            if(!(current instanceof Map<?,?> map))return null;
+            if(map.containsKey(part))current=map.get(part);
+            else {current=null;for(Object candidate:map.keySet())if(candidate instanceof Number&&part.equals(candidate.toString())){current=map.get(candidate);break;}}
+        }
         return current;
     }
 }

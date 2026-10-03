@@ -49,6 +49,54 @@ class BankServiceTest {
         bank = new BankService(store, economy, wal, 1000);
     }
 
+    @Test void uncappedSentinelsPreserveDurableDepositAndWithdrawal() throws Exception {
+        openingBank(2000.005);
+        bank.setCap(-1);
+        assertTrue(bank.transfer("uncapped_negative", owner, true, 10, 0, false).success());
+        assertState(owner, 90, 2010.005);
+        bank.setCap(0);
+        assertTrue(bank.transfer("uncapped_zero", owner, true, 10, 0, false).success());
+        assertTrue(bank.transfer("uncapped_withdraw", owner, false, 10, 0, false).success());
+        assertState(owner, 90, 2010.005);
+        assertTrue(store.pendingOperations().isEmpty());
+    }
+
+    @Test void reloadedCapIsUsedWithoutChangingExistingBalancesOrReplay() throws Exception {
+        openingBank(20.005);
+        bank.setCap(20);
+        assertRefusedUnchanged("reloaded_cap_refusal", owner, true, 1, 0, "BANK_CAP");
+        bank.setCap(30);
+        assertTrue(bank.transfer("reloaded_cap_credit", owner, true, 1, 0, false).success());
+        bank.setCap(10);
+        assertTrue(bank.transfer("reloaded_cap_credit", owner, true, 1, 0, false).success());
+        assertRefusedUnchanged("lowered_cap_refusal", owner, true, 1, 0, "BANK_CAP");
+        assertTrue(bank.transfer("lowered_cap_withdraw", owner, false, 1, 0, false).success());
+        assertState(owner, 100, 20.005);
+        assertThrows(IllegalArgumentException.class, () -> bank.setCap(Double.NaN));
+        assertRefusedUnchanged("invalid_cap_unchanged", owner, true, 1, 0, "BANK_CAP");
+    }
+
+    @Test void uncappedDepositOverflowRefusesBeforeWalletOrJournalEffect() throws Exception {
+        openingBank(Double.MAX_VALUE);
+        bank.setCap(-1);
+        economy.account(owner, Double.MAX_VALUE);
+        assertRefusedUnchanged("uncapped_overflow", owner, true, Double.MAX_VALUE, 0, "INVALID_RESULT");
+        assertTrue(store.operation("uncapped_overflow").isEmpty());
+    }
+
+    @Test void knownFeatureRefusalRestoresGrandfatheredOpeningAboveLoweredCap() throws Exception {
+        openingBank(1005.005);
+        bank.setCap(1000);
+        assertTrue(bank.charge("grandfathered_cost", owner, 20, true).success());
+        assertState(owner, 100, 985.005);
+        assertTrue(bank.finishCharge("grandfathered_cost", false));
+        assertState(owner, 100, 1005.005);
+        assertEquals("COMPENSATED", phase("grandfathered_cost"));
+        assertTrue(store.pendingOperations().isEmpty());
+        assertTrue(bank.finishCharge("grandfathered_cost", false));
+        assertState(owner, 100, 1005.005);
+    }
+
     @Test void depositConservesPersistedPlayerPlusBank() throws Exception {
         openingBank(17.123456789);
         assertTrue(bank.transfer("deposit_01", owner, true, 20, 0, false).success());

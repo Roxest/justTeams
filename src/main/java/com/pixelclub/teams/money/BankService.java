@@ -16,12 +16,14 @@ public final class BankService {
     private final TeamStore store;
     private final DurableEconomy economy;
     private final Path wal;
-    private final double cap;
+    private double cap;
     public BankService(TeamStore store,DurableEconomy economy,Path wal,double cap) {
-        if(!Double.isFinite(cap)||cap<=0)throw new IllegalArgumentException("bank cap");
+        if(!Double.isFinite(cap))throw new IllegalArgumentException("bank cap");
         this.store=store;this.economy=economy;this.wal=wal;this.cap=cap;
     }
     public boolean available(){return economy.available();}
+    /** Donor <=0 means uncapped; reload shares the same monitor as every money operation. */
+    public synchronized void setCap(double cap){if(!Double.isFinite(cap))throw new IllegalArgumentException("bank cap");this.cap=cap;}
     /** Donor paid features consume team funds first; joining/creation pass bankFirst=false. */
     public synchronized Result charge(String opid,UUID player,double rawCost,boolean bankFirst) {
         double cost;
@@ -76,7 +78,11 @@ public final class BankService {
             if(fromPlayer>0&&(!economy.change(operation.player(),fromPlayer,"pxc:team-feature-refund:"+opid)||!economy.flushConfirmed(operation.player(),value(payload,"playerBefore")))){
                 freeze(opid,"FEATURE_REFUND_UNKNOWN",payload);return false;
             }
-            if(fromBank>0&&!store.mutateBank(opid+"_refund",operation.teamId(),operation.player(),fromBank,cap,false,true).applied()){
+            // A rejected feature may restore its verified opening balance even if that balance predates a lower cap.
+            double bankBefore=value(payload,"bankBefore");
+            if(!Double.isFinite(bankBefore)||bankBefore<0)throw new IllegalArgumentException("Invalid charge baseline");
+            double refundCap=cap>0?Math.max(cap,bankBefore):cap;
+            if(fromBank>0&&!store.mutateBank(opid+"_refund",operation.teamId(),operation.player(),fromBank,refundCap,false,true).applied()){
                 freeze(opid,"FEATURE_BANK_REFUND_UNKNOWN",payload);return false;
             }
         }
@@ -107,7 +113,8 @@ public final class BankService {
             bankBefore=team.balance();
             if(store.isFrozen(team.id(),player))return refuse("FROZEN_PENDING_RECOVERY",opid);
             if(!deposit&&!member.flag("can_withdraw")&&!bypass)return refuse("DENIED",opid);
-            if(deposit&&bankBefore+amount>cap)return refuse("BANK_CAP",opid);
+            if(!Double.isFinite(bankBefore+(deposit?amount:-amount)))return refuse("INVALID_RESULT",opid);
+            if(deposit&&cap>0&&bankBefore+amount>cap)return refuse("BANK_CAP",opid);
             if(!deposit&&bankBefore<amount)return refuse("INSUFFICIENT_BANK",opid);
             if(!economy.available()||!economy.hasAccount(player))return refuse("PROVIDER_UNAVAILABLE",opid);
             before=economy.balance(player);
