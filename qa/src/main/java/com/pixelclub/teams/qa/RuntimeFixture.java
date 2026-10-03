@@ -268,6 +268,9 @@ public final class RuntimeFixture implements ModInitializer {
             case "adminSetting"->call(core,method,new Class<?>[]{ServerPlayer.class,int.class,String.class,Object.class},p,Integer.parseInt(a[1]),a[2],Set.of("kills","deaths").contains(a[2])?Integer.parseInt(a[3]):a[3]);
             case "acceptRequest"->call(core,method,new Class<?>[]{ServerPlayer.class,UUID.class},p,offline(a[1]));
             case "claim"->call(field(core,"chests"),method,new Class<?>[]{ServerPlayer.class},p);
+            // Mirrors TeamCommands "/team upgrade" and "/team ec" bodies after the pxc-auth dispatch gate.
+            case "upgrades"->{call(core,"check",new Class<?>[]{ServerPlayer.class,String.class},p,"upgrade");yield call(field(core,"menus"),"upgrades",new Class<?>[]{ServerPlayer.class},p);}
+            case "ec"->{call(core,"check",new Class<?>[]{ServerPlayer.class,String.class},p,"enderchest");yield call(field(core,"chests"),"open",new Class<?>[]{ServerPlayer.class},p);}
             default->throw new IllegalArgumentException("unapproved fixture core method");
         };
     }

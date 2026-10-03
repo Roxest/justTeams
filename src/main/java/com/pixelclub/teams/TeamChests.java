@@ -74,7 +74,9 @@ public final class TeamChests {
             lease.inventory=new ChestSessionContainer(lease.team,lease.player,lease.generation,inventory,()->lease.open&&leases.get(lease.team)==lease);
             leases.put(lease.team,lease);
             player.openMenu(new SimpleMenuProvider((id,inv,p)->{lease.menu=new Menu(id,inv,lease);return lease.menu;},Texts.of(core.settings.message("team_enderchest_title","Team chest"))));
-            return player.containerMenu==lease.menu;
+            if(player.containerMenu==lease.menu)return true;
+            // Another mod may refuse the screen; an unopened lease must not lock the team chest while its holder stays online.
+            lease.open=false;lease.inventory.revoke();leases.remove(lease.team,lease);return false;
         };core.ensureChanged(admin?action.call():core.paid(player,"enderchest",true,action));
     }
     private final class Menu extends ChestMenu {
