@@ -20,13 +20,17 @@ def module(path: Path, name: str):
     return loaded
 
 
-def running(client) -> bool:
+# The only writer of each catalog: PRD owns `pixelclub`; the dev rehearsal owns `jt_rehearsal` (never `pixelclub`).
+TARGETS = {("pixelclub-arclight", "pixelclub"), ("pixelclub-arclight-dev", "jt_rehearsal")}
+
+
+def running(client, container: str) -> bool:
     _, out, err = client.exec_command(
-        "docker inspect --format '{{.State.Running}}' pixelclub-arclight", timeout=30
+        f"docker inspect --format '{{{{.State.Running}}}}' {container}", timeout=30
     )
     value = out.read().decode("ascii").strip()
     if out.channel.recv_exit_status() != 0 or value not in {"true", "false"}:
-        raise RuntimeError("Cannot verify PRD container running state")
+        raise RuntimeError("Cannot verify container running state")
     return value == "true"
 
 
@@ -37,7 +41,11 @@ def main():
     parser.add_argument("--db-helper", type=Path,
                         default=Path("F:/Pixelclub/tools/eco/player-audit-0929/dbconn.py"))
     parser.add_argument("--require-cold", action="store_true")
+    parser.add_argument("--container", default="pixelclub-arclight")
+    parser.add_argument("--database", default="pixelclub")
     args = parser.parse_args()
+    if (args.container, args.database) not in TARGETS:
+        raise SystemExit("Unapproved container/database pairing")
     output = args.output.resolve()
     if output.exists() or "scratch" not in {part.lower() for part in output.parts}:
         raise SystemExit("Output must be new and under a local scratch directory")
@@ -46,9 +54,9 @@ def main():
         raise SystemExit("Requires the known SELECT-only DB helper")
     client = module(args.pxc, "chest_pxc").connect()
     try:
-        was_running = running(client)
+        was_running = running(client, args.container)
         if args.require_cold and was_running:
-            raise RuntimeError("Cold snapshot refused: PRD container is running")
+            raise RuntimeError("Cold snapshot refused: container is running")
         export_body = '''
 import hashlib, json
 conn, cur = connect()
@@ -56,7 +64,7 @@ try:
     cur.execute("START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY")
     cur.execute("SELECT UTC_TIMESTAMP(6) AS snapshot_utc")
     timestamp = str(cur.fetchone()["snapshot_utc"])
-    cur.execute("SELECT team_id, inventory_data FROM pixelclub.donut_team_enderchest ORDER BY team_id")
+    cur.execute("SELECT team_id, inventory_data FROM DATABASE_NAME.donut_team_enderchest ORDER BY team_id")
     rows = []
     for row in cur.fetchall():
         blob = row["inventory_data"]
@@ -75,6 +83,7 @@ except Exception as failure:
     print(json.dumps({"error_type": type(failure).__name__, "error_code": getattr(failure, "errno", None)}))
     sys.exit(1)
 '''
+        script = script.replace("DATABASE_NAME", args.database)
         stdin, stdout, stderr = client.exec_command("python3 -", timeout=60)
         stdin.write(script)
         stdin.flush()
@@ -93,10 +102,10 @@ except Exception as failure:
             except (ValueError, KeyError):
                 raise RuntimeError("SELECT-only export failed; remote error text withheld") from None
         document = json.loads(data)
-        if running(client) != was_running:
-            raise RuntimeError("PRD running state changed during snapshot")
+        if running(client, args.container) != was_running:
+            raise RuntimeError("Container running state changed during snapshot")
         document["cold_verified"] = not was_running
-        document["source"] = "SELECT team_id, inventory_data FROM pixelclub.donut_team_enderchest"
+        document["source"] = f"SELECT team_id, inventory_data FROM {args.database}.donut_team_enderchest"
         output.parent.mkdir(parents=True, exist_ok=True)
         data = json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         with output.open("xb") as stream:
