@@ -25,7 +25,7 @@ Declared != enforced:register never setPermission(util/CommandManager77-88);feat
 
 Refs TC:477-1312,1420-1596,1683-1689,1793-1854,2081-2100,2255-2271.  Kick CO_OWNER target requires O(`TM:1264`);grant=can_promote_to_co_owner(`TM:1352-1355`). Root1s+30/min(TC:73-79,368-383).
 
-Admin=isOp OR * OR justteams.admin;only reload accepts console. /team admin [gui],disband TEAM,home TEAM,enderchest TEAM,points TEAM add/remove/set LONG(`TC:82-88,1611-1666,1693-1735,1853-1854`). Chest additionally justteams.admin.enderchest(`TM:242-245`); performance additionally justteams.admin.performance:database/cache/tasks/optimize/cleanup(`TC:1968-2000`). 
+Admin=isOp OR * OR justteams.admin;only reload accepts console. /team admin [gui],disband TEAM,home TEAM,enderchest TEAM,points TEAM add/remove/set LONG(`TC:82-88,1611-1666,1693-1735,1853-1854`). Chest additionally justteams.admin.enderchest(`TM:242-245`); performance additionally justteams.admin.performance:database/cache/tasks/optimize/cleanup(`TC:1968-2000`).
 
 ## Permissions and nodes
 Flag writes O-only(TM2405-2407). GUI opens nonself+O or CO_OWNER->MEMBER(GL265-280),ignores can_edit_members/co_owners (TeamPlayer.canEditPlayer182-201). Slot28 O->CO_OWNER rechecked(GL523-543). Promote/demote flags=TTTT/FTFT(storage/DatabaseStorage:1600).
@@ -65,4 +65,3 @@ Glow features.team_glow+PacketEvents;constructor IGNORES settings.glow.enabled. 
 
 ## Not found
 Live flags/usage/rendering not sampled;generic C.* checks absent;no credential/server/application edits.
-

@@ -45,4 +45,3 @@ Main <status>=PvP status-on/status-off from team-gui.items.pvp-toggle,defaults "
 Member withdraw_status/enderchest_status/set_home_status/use_home_status/promote_co_owner_status are messages.yml raw status_enabled/status_disabled;empty/missing falls back "<green>ENABLED"/"<red>DISABLED" (MemberEditGUI:149,169-176). Main head status_indicator="<COLOR>"+ICON+" </COLOR>",using placeholders.yml status.online/offline.icon/color;defaults dot,#00FF00/#FF0000 (TeamGUI:289-292;util/GuiConfigManager:168-175). role icon/name/color keys=roles.ROLELOWER.icon/name/color (GuiConfigManager:156-165).
 
 Sort lore=selected/unselected prefix + sort.TYPELOWER.icon + sort.TYPELOWER.name,where TYPE is join_date/alphabetical/online_status. Placeholder keys sort.selected_prefix/unselected_prefix;defaults "<green>▪ <white>"/"<gray>▪ <white>" (TeamGUI:277-282;GuiConfigManager:178-191;R placeholders.yml:193-208).
-
