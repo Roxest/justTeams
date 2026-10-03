@@ -25,7 +25,11 @@ public final class TeamMenus {
     private final class Screen {
         final ServerPlayer player;final String section;final SimpleContainer inventory;final Map<Integer,Button> buttons=new HashMap<>(),rightButtons=new HashMap<>();final Map<String,String> context=new HashMap<>();final int teamId;final Component title;
         Screen(ServerPlayer player,String section,int fallback,String defaultTitle)throws Exception {
+            this(player,section,fallback,defaultTitle,Map.of());
+        }
+        Screen(ServerPlayer player,String section,int fallback,String defaultTitle,Map<String,String> initial)throws Exception {
             this.player=player;this.section=section;teamId=core.store.teamOf(player.getUUID()).map(Team::id).orElse(0);
+            context.putAll(initial);
             int size=number(section+".size",fallback);if(size<9||size>54||size%9!=0)throw new TeamsCore.Refusal("GUI_SIZE_INVALID");inventory=new SimpleContainer(size);
             title=render(player,string(section+".title",defaultTitle),context);
             ItemStack filler=item(string(section+".fill-item.material","GRAY_STAINED_GLASS_PANE"),string(section+".fill-item.name"," "),List.of());for(int i=0;i<size;i++)if(!section.equals("team-gui")||i<9||i>=45)inventory.setItem(i,filler.copy());if(section.equals("team-gui"))dummies(this);
@@ -98,9 +102,13 @@ public final class TeamMenus {
     public void confirm(ServerPlayer player,String title,TeamsCore.Throwing action)throws Exception {Screen menu=new Screen(player,"confirm-gui",27,title);menu.button("confirm",11,"LIME_CONCRETE","&aConfirm",p->{p.closeContainer();action.run();});menu.button("cancel",15,"RED_CONCRETE","&cCancel",this::team);menu.open();}
     public void warps(ServerPlayer player)throws Exception {core.check(player,"warps");Team team=core.requireTeam(player);Screen menu=new Screen(player,"warps-gui",54,"Team warps");List<Map<String,Object>> warps=core.store.rows("team_warps","team_id",team.id());int slot=10;for(var warp:warps){if(slot>=45)break;String name=warp.get("warp_name").toString();int actual=slot++;menu.direct(actual,"ENDER_PEARL",name,List.of(Objects.toString(warp.get("location"),"")),p->{String password=(String)warp.get("password");if(password!=null&&!password.isEmpty())core.prompt(p,"Warp password",text->core.safely(p,()->core.teleport(p,"warp",name,text)));else core.teleport(p,"warp",name,null);});menu.right(actual,p->confirm(p,"Delete warp",()->{core.deleteWarp(p,name);warps(p);}));}back(menu,49);menu.open();}
     public void upgrades(ServerPlayer player)throws Exception {
-        core.check(player,"upgrade");Team team=core.requireTeam(player);Screen menu=new Screen(player,"upgrades-gui",45,"Team upgrades");menu.button("current-tier",11,"IRON_INGOT","&aTier "+team.tier(),null);
-        int next=team.tier()+1;menu.button("next-tier",15,"GOLD_INGOT","&eTier "+next+" : "+Texts.money(core.settings.number("team_upgrades.tiers."+next+".cost",0)),null);
-        menu.button("upgrade-button",22,"NETHER_STAR","&aUpgrade",p->confirm(p,"Upgrade",()->core.upgrade(p)));back(menu,40);menu.open();
+        core.check(player,"upgrade");Team team=core.requireTeam(player);Screen menu=new Screen(player,"upgrades-gui",45,"Team upgrades",UpgradeView.values(core.settings,team.tier(),team.balance()));menu.button("current-tier",11,"IRON_INGOT","&aTier "+team.tier(),null);
+        if(UpgradeView.available(core.settings,team.tier())){
+            int next=team.tier()+1;menu.button("next-tier",15,"GOLD_INGOT","&eTier "+next,null);
+            if(team.owner().equals(player.getUUID()))menu.button("upgrade-button",22,"NETHER_STAR","&aUpgrade",p->confirm(p,"Upgrade",()->core.upgrade(p)));
+            else menu.button("upgrade-button-locked",22,"RED_STAINED_GLASS_PANE","&cOwner only",null);
+        }else menu.button("max-tier",15,"DIAMOND_BLOCK","&aMaximum tier",null);
+        back(menu,40);menu.open();
     }
     public void top(ServerPlayer player,String category)throws Exception {
         core.check(player,"top");if(category==null){Screen menu=new Screen(player,"leaderboard-category-gui",27,"Top teams");menu.button("top-kills",11,"DIAMOND_SWORD","&aKills",p->top(p,"kills"));menu.button("top-balance",13,"GOLD_INGOT","&aBalance",p->top(p,"balance"));menu.button("top-members",15,"PLAYER_HEAD","&aMembers",p->top(p,"members"));back(menu,22);menu.open();return;}
