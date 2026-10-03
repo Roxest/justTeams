@@ -223,7 +223,7 @@ def step_postboot(w: Window):
     root = PRD if w.target == "prd" else "/root/pixelclub/dev-pixelclub-server"
     code, out, _ = w.shell(f"grep -a -e '\\[pxc-teams\\]' -e 'pxc-justteams' {root}/logs/latest.log | tail -n 300")
     w.note("log", lines=out.splitlines()[-8:])
-    ready = [l for l in out.splitlines() if "native 2.5.5+pxc.1 ready:" in l]
+    ready = [l for l in out.splitlines() if "native 2.5.5+pxc." in l and " ready:" in l]
     if not ready or "ready=true" not in ready[-1] or "pending=0" not in ready[-1] or "provider=true" not in ready[-1]:
         raise Hold("native core not ready/pending>0/provider down: " + (ready[-1][-160:] if ready else "no ready line"))
     if w.target == "prd" and "team=released(vanilla wrapper)->own wrapper" not in out:
@@ -253,7 +253,7 @@ def step_rollback(w: Window):
             raise Hold("outgoing plugin archive missing")
         w.put(archive[-1], f"{WORK}/restore-plugin.jar")
         code, out, err = w.shell(f"set -e; cd {PRD}; cp {WORK}/restore-plugin.jar plugins/JustTeams-2.5.5.jar; chmod 644 plugins/JustTeams-2.5.5.jar; "
-                                 f"mv mods/JustTeams-2.5.5+pxc.1.jar {WORK}/rolledback-native.jar; rm -f {WORK}/restore-plugin.jar {WORK}/rolledback-native.jar; sha256sum plugins/JustTeams-2.5.5.jar")
+                                 f"mv mods/JustTeams-2.5.5+pxc.*.jar {WORK}/rolledback-native.jar; rm -f {WORK}/restore-plugin.jar {WORK}/rolledback-native.jar; sha256sum plugins/JustTeams-2.5.5.jar")
         if code != 0 or out.split()[0] != OUTGOING:
             raise Hold("plugin restore failed")
         w.note("unswapped", plugin=OUTGOING, note="config/JustTeams and the pxcnotice rule are inert under Bukkit and are left in place")

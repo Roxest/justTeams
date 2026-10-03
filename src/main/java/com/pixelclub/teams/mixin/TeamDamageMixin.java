@@ -21,5 +21,5 @@ public abstract class TeamDamageMixin {
     @ModifyVariable(method="hurt",at=@At("HEAD"),argsOnly=true,ordinal=0)
     private float teamDamage(float amount,DamageSource source,float original){TeamsCore core=TeamsMod.core();if(core!=null&&(Object)this instanceof ServerPlayer victim&&source.getEntity() instanceof ServerPlayer attacker)try{return core.damage(attacker,victim,amount);}catch(Exception e){core.refuse(attacker,e);}return amount;}
     @Inject(method="hurt",at=@At("RETURN"))
-    private void cancelWarmupOnDamage(DamageSource source,float amount,CallbackInfoReturnable<Boolean> callback){TeamsCore core=TeamsMod.core();if(core!=null&&callback.getReturnValueZ()&&(Object)this instanceof ServerPlayer victim)try{core.damageTaken(victim);}catch(Exception e){core.refuse(victim,e);}}
+    private void cancelWarmupOnDamage(DamageSource source,float amount,CallbackInfoReturnable<Boolean> callback){TeamsCore core=TeamsMod.core();if(core!=null&&callback.getReturnValueZ()&&(Object)this instanceof ServerPlayer victim){try{core.damageTaken(victim);}catch(Exception e){core.refuse(victim,e);}if(source.getEntity() instanceof ServerPlayer attacker)try{core.pvpLanded(attacker,victim);}catch(Exception e){core.refuse(attacker,e);}}}
 }

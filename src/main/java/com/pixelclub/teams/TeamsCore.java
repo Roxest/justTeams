@@ -309,7 +309,11 @@ public final class TeamsCore implements AutoCloseable {
         return snapshots.policy(attacker,victim);
     }
     public synchronized boolean blockDamage(ServerPlayer attacker,ServerPlayer victim)throws Exception {
-        if(attacker==victim)return false;Decision policy=damagePolicy(attacker.getUUID(),victim.getUUID());boolean deny=policy!=Decision.ALLOW;if(!deny&&settings.bool("team_pvp.disable_fly_on_combat",true)){disableFlight(attacker);disableFlight(victim);}return deny;
+        if(attacker==victim)return false;return damagePolicy(attacker.getUUID(),victim.getUUID())!=Decision.ALLOW;
+    }
+    /** After hurt() returned true: justTeams' PvPListener ran at HIGH with ignoreCancelled, so a hit a region already denied (spawn pvp: deny) never cost anyone their flight. */
+    public void pvpLanded(ServerPlayer attacker,ServerPlayer victim){
+        if(attacker==victim||damagePolicy(attacker.getUUID(),victim.getUUID())!=Decision.ALLOW||!settings.bool("team_pvp.disable_fly_on_combat",true))return;disableFlight(attacker);disableFlight(victim);
     }
     private void disableFlight(ServerPlayer player){if(player.isCreative()||player.isSpectator())return;player.getAbilities().flying=false;player.getAbilities().mayfly=false;player.onUpdateAbilities();}
     public synchronized float damage(ServerPlayer attacker,ServerPlayer victim,float amount)throws Exception {if(amount<=0||!snapshots.healthy()||!settings.bool("team_upgrades.enabled",true))return amount;Team team=snapshots.subject(attacker.getUUID()).team(),other=snapshots.subject(victim.getUUID()).team();if(team==null||other!=null&&team.id()==other.id())return amount;double bonus=Math.max(0,settings.number("team_upgrades.tiers."+team.tier()+".damage_bonus_percent",0));return Double.isFinite(bonus)?(float)(amount*(1+bonus/100)):amount;}
