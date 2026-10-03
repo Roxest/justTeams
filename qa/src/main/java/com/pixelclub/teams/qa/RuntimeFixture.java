@@ -26,6 +26,7 @@ import java.util.concurrent.TimeUnit;
 /** Test addon, console-only, explicit synthetic names, strict marked loopback fixture. */
 public final class RuntimeFixture implements ModInitializer {
     private static final Set<String> NAMES=Set.of("JTMoneyOwner","JTMoneyMember","JTMoneyCo");
+    private static final List<String> READ_NAMES=List.of("JTMoneyOwner","JTMoneyMember","JTMoneyCo","PxcEyes2");
     private static final Class<?>[] NONE=new Class<?>[0];
     private static final long RUN=System.currentTimeMillis();
     private static int sequence;
@@ -73,9 +74,10 @@ public final class RuntimeFixture implements ModInitializer {
         Object core=core();
         switch(parts[0]){
             case "status":return call(core,"status",NONE);
+            case "acmeta":{var mod=FabricLoader.getInstance().getModContainer("pxcac-server").orElseThrow();return Map.of("id",mod.getMetadata().getId(),"version",mod.getMetadata().getVersion().getFriendlyString());}
             case "authstate":{
                 if(!Set.of("JTMoneyOwner","PxcEyes2").contains(parts[1]))throw new IllegalArgumentException("synthetic auth identity required");UUID id=offline(parts[1]);Class<?> auth=Class.forName("com.pixelclub.auth.api.AuthState");ServerPlayer online=server.getPlayerList().getPlayer(id);
-                return Map.of("status",String.valueOf(auth.getMethod("status",UUID.class).invoke(null,id)),"session",auth.getMethod("sessionId",UUID.class).invoke(null,id),"provider",String.valueOf(auth.getMethod("provider").invoke(null)),"playerClass",online==null?"absent":online.getClass().getName(),"testActorsFlag",Boolean.getBoolean("pxcteams.testActors"));
+                return Map.of("status",String.valueOf(auth.getMethod("status",UUID.class).invoke(null,id)),"session",auth.getMethod("sessionId",UUID.class).invoke(null,id),"provider",String.valueOf(auth.getMethod("provider").invoke(null)),"playerClass",online==null?"absent":online.getClass().getName(),"testActorsFlag",Boolean.getBoolean("pxcteams.testActors"),"coreAuthenticated",online!=null&&Boolean.TRUE.equals(Class.forName("com.pixelclub.teams.TeamsCore").getMethod("authenticated",ServerPlayer.class).invoke(null,online)));
             }
             case "seedeyes":{
                 UUID id=offline("PxcEyes2");Object store=field(core,"store");
@@ -216,8 +218,8 @@ public final class RuntimeFixture implements ModInitializer {
             Map<String,Object> data=new LinkedHashMap<>();for(String field:List.of("teamId","formatVersion","inventoryJson","originalSha256","generation","updatedAt"))data.put(field,call(chest.get(),field,NONE));state.put("chest",data);
         }
         Object chests=field(core,"chests");state.put("openChests",call(chests,"openCount",NONE));
-        List<Object> quarantine=new ArrayList<>();for(String name:NAMES){UUID uuid=UUID.nameUUIDFromBytes(("OfflinePlayer:"+name).getBytes(java.nio.charset.StandardCharsets.UTF_8));quarantine.add(Map.of("name",name,"actorQuarantined",call(chests,"actorQuarantined",new Class<?>[]{UUID.class},uuid),"teamQuarantined",call(chests,"quarantined",new Class<?>[]{UUID.class,int.class},uuid,1)));}state.put("quarantine",quarantine);
-        List<Object> actors=new ArrayList<>();for(String name:NAMES){ServerPlayer player=server.getPlayerList().getPlayerByName(name);if(player==null)continue;
+        List<Object> quarantine=new ArrayList<>();for(String name:READ_NAMES){UUID uuid=UUID.nameUUIDFromBytes(("OfflinePlayer:"+name).getBytes(java.nio.charset.StandardCharsets.UTF_8));quarantine.add(Map.of("name",name,"actorQuarantined",call(chests,"actorQuarantined",new Class<?>[]{UUID.class},uuid),"teamQuarantined",call(chests,"quarantined",new Class<?>[]{UUID.class,int.class},uuid,1)));}state.put("quarantine",quarantine);
+        List<Object> actors=new ArrayList<>();for(String name:READ_NAMES){ServerPlayer player=server.getPlayerList().getPlayerByName(name);if(player==null)continue;
             Map<String,Object> actor=new LinkedHashMap<>();actor.put("name",name);actor.put("uuid",player.getUUID().toString());actor.put("class",player.getClass().getName());
             actor.put("menu",player.containerMenu.getClass().getName());actor.put("slots",player.containerMenu.slots.size());actor.put("inventory",player.getInventory().save(new ListTag()).toString());
             actor.put("cursor",player.containerMenu.getCarried().toString());actor.put("position",player.position().toString());actor.put("dimension",player.serverLevel().dimension().location().toString());

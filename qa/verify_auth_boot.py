@@ -26,4 +26,7 @@ for name,item in report['outputs'].items():assert hashlib.sha256((ROOT/'config/J
 status=qa('status')['result'];assert 'ready=true' in status and 'provider=true' in status and 'snapshot-health=true' in status
 auth=qa('authstate JTMoneyOwner')['result'];assert auth['testActorsFlag'] is False and 'id=pxc-auth' in auth['provider'] and 'available=true' in auth['provider']
 proof={'applicationSha256':sha,'pid':int((ROOT/'qa-server.pid').read_text()),'rung':'loaded + state','nativeRequiredMixins':expected,'exportedBytecodeMarkersVerified':True,'status':status,'authProvider':'pxc-auth','testActorsFlag':False,'privateSixFileHashesVerified':True,'configSha256':report['outputs']['config.yml']['sha256'],'safeOverrides':['storage H2','redis disabled'],'authWalletSQLPlayerdataPreserved':True,'log':(ROOT/'qa-current-log.txt').read_text()}
+if (ROOT/'qa-ac-1.18.9-stage.json').exists():
+    ac_stage=json.loads((ROOT/'qa-ac-1.18.9-stage.json').read_text());ac=qa('acmeta')['result'];assert ac['version']=='1.18.9' and hashlib.sha256((ROOT/'mods/PxcAC-Server-1.18.9.jar').read_bytes()).hexdigest()==ac_stage['sha256'];assert hashlib.sha256((ROOT/'config/pxcac/config.json').read_bytes()).hexdigest()==ac_stage['ownACConfigSha256'],'own AC config changed'
+    proof.update({'ownLoadedACVersion':ac['version'],'ownACSha256':ac_stage['sha256'],'ownACConfigUnchanged':True,'devLoadedACVersion':'UNKNOWN; no log proof'})
 (ROOT/'qa-auth-boot-health.json').write_text(json.dumps(proof,indent=2),encoding='utf-8');print(json.dumps(proof))

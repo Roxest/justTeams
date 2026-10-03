@@ -42,6 +42,11 @@ JSON/generation/source against a retained proof while the JVM is cold. A failed
 AC-interrupted custody attempt remains explicitly failed even if its durable
 state can be inspected independently. Root owns the approved eyes client.
 
+`stage_ac_dev.py` is a cold-only, hash-pinned AC jar replacement and archives the
+old jar outside ServerRoot. The native `acmeta` and `authstate` commands are
+read-only; PxcEyes2 snapshot visibility does not extend the mutating-name
+whitelist. AC config/key values remain unchanged and are never emitted.
+
 `run_cases.py bank` is for a new seed; `bank-resume` repeats bank behaviour without
 resetting wallets; `resume` spawns exact cached synthetic identities after a cold
 restart. `gui`, `chest`, and `home-cap` execute respective sequential assertions.
