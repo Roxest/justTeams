@@ -221,7 +221,7 @@ def step_swap(w: Window, dry: bool):
 
 def step_postboot(w: Window):
     root = PRD if w.target == "prd" else "/root/pixelclub/dev-pixelclub-server"
-    code, out, _ = w.shell(f"grep -a -e '\\[pxc-teams\\]' -e 'pxc-justteams' {root}/logs/latest.log | tail -n 20")
+    code, out, _ = w.shell(f"grep -a -e '\\[pxc-teams\\]' -e 'pxc-justteams' {root}/logs/latest.log | tail -n 300")
     w.note("log", lines=out.splitlines()[-8:])
     ready = [l for l in out.splitlines() if "native 2.5.5+pxc.1 ready:" in l]
     if not ready or "ready=true" not in ready[-1] or "pending=0" not in ready[-1] or "provider=true" not in ready[-1]:
@@ -266,12 +266,15 @@ def main():
     p.add_argument("--target", required=True, choices=list(TARGETS))
     p.add_argument("--dry-run", action="store_true")
     a = p.parse_args()
-    w = Window(a.target, a.step)
     t0 = time.monotonic()
+    try:
+        w = Window(a.target, a.step)
+    except BaseException as error:
+        print(f"justteams_window: HOLD DOWN {a.step} target={a.target}: setup failed {type(error).__name__}")
+        return 9
     try:
         summary = {"import": lambda: step_import(w), "swap": lambda: step_swap(w, a.dry_run),
                    "postboot": lambda: step_postboot(w), "rollback": lambda: step_rollback(w)}[a.step]()
-        w.offload()
         w.note("done", seconds=round(time.monotonic() - t0, 1))
         print(f"justteams_window: OK {a.step} target={a.target} {summary} seconds={round(time.monotonic() - t0, 1)} evidence={w.dir}")
         return 0
@@ -279,11 +282,15 @@ def main():
         w.note("HOLD", reason=str(hold))
         print(f"justteams_window: HOLD DOWN {a.step} target={a.target}: {hold} evidence={w.dir}")
         return 9
-    except Exception as error:
-        w.note("ERROR", kind=type(error).__name__)
+    except BaseException as error:
+        w.note("ERROR", kind=type(error).__name__, detail=str(error)[:160])
         print(f"justteams_window: HOLD DOWN {a.step} target={a.target}: unexpected {type(error).__name__} evidence={w.dir}")
         return 9
     finally:
+        try:
+            w.offload()
+        except BaseException:
+            print("justteams_window: note: window-* files may remain under " + WORK)
         w.close()
 
 
