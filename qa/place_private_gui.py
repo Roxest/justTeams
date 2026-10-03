@@ -13,6 +13,7 @@ if handle:ctypes.windll.kernel32.CloseHandle(handle);raise RuntimeError('Cold ri
 stage=Path('F:/Pixelclub/scratch/justteams-cutover-20261002/private-gui-stage')
 report=json.loads((stage/'sanitization-report.json').read_text(encoding='utf-8'))
 assert report['owner_only_acl'] and report['behavior_unchanged'] and report['config_override_paths']==['storage','redis']
+assert set(report['outputs'])=={'config.yml','gui.yml','messages.yml','commands.yml','placeholders.yml','quests.yml'},'exact authorised six files required'
 config=yaml.safe_load((stage/'config.yml').read_text(encoding='utf-8'));storage=config['storage']
 assert storage['type'].lower()=='h2' and storage.get('table_prefix',storage.get('prefix'))=='donut_'
 assert config['redis']['enabled'] is False
