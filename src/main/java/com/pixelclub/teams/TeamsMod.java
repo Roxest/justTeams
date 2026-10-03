@@ -28,7 +28,7 @@ public final class TeamsMod implements ModInitializer {
         CommandRegistrationCallback.EVENT.register((dispatcher,access,environment)->{if(!bukkitApiPresent())TeamCommands.register(dispatcher,settings);});
         ServerLifecycleEvents.SERVER_STARTED.register(server->{
             if(legacyEnabled()){problem="BukkitJustTeamsEnabled";LOG.info("[pxc-teams] DORMANT: Bukkit JustTeams is enabled");return;}
-            if(bukkitApiPresent())TeamCommands.register(server.getCommands().getDispatcher(),settings);
+            if(bukkitApiPresent()){TeamCommands.register(server.getCommands().getDispatcher(),settings);LOG.info("[pxc-teams] command labels: {} | {}",TeamCommands.releaseBukkitTeamLabel(),TeamCommands.bukkitOwners());}
             try{core=new TeamsCore(server,settings);problem="";LOG.info("[pxc-teams] native 2.5.5+pxc.1 ready: {}",core.status());}
             catch(Exception e){problem=e.getClass().getSimpleName();LOG.error("[pxc-teams] NOT READY: {}. No team mutations are exposed.",problem);}
         });

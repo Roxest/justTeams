@@ -12,6 +12,9 @@ import java.util.*;
 public final class TeamCommands {
     private TeamCommands(){}
     private static final Map<CommandDispatcher<?>,Map<String,CommandNode<?>>> owned=new WeakHashMap<>();
+    /** Mojang's scoreboard /team node, kept so console, functions and command blocks still reach it. */
+    private static volatile CommandNode<CommandSourceStack> vanillaTeam;
+    private static final Set<String> VANILLA_TEAM=Set.of("add","remove","empty","join","leave","list","modify");
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher,Settings settings) {
         Map<String,CommandNode<?>> previous=owned.remove(dispatcher);if(previous!=null)previous.forEach((name,node)->{if(dispatcher.getRoot().getChild(name)==node)remove(dispatcher.getRoot(),name);});owned.put(dispatcher,new HashMap<>());
         for(String root:List.of("team","t"))registerRoot(dispatcher,root,false);
@@ -21,15 +24,56 @@ public final class TeamCommands {
         aliases.forEach((key,names)->{if(settings.commandAlias(key))for(String name:names)registerRoot(dispatcher,name,key.endsWith("msg"));});
     }
     private static void registerRoot(CommandDispatcher<CommandSourceStack> dispatcher,String name,boolean message) {
+        boolean team=name.equals("team");
+        if(team){CommandNode<CommandSourceStack> existing=dispatcher.getRoot().getChild("team");if(existing!=null)vanillaTeam=existing;}
         remove(dispatcher.getRoot(),name);
-        CommandNode<?> node=dispatcher.register(Commands.literal(name).executes(context->execute(context.getSource(),"",message)).then(Commands.argument("arguments",StringArgumentType.greedyString()).executes(context->execute(context.getSource(),StringArgumentType.getString(context,"arguments"),message))));owned.get(dispatcher).put(name,node);
+        CommandNode<?> node=dispatcher.register(Commands.literal(name).executes(context->execute(context.getSource(),"",message,team)).then(Commands.argument("arguments",StringArgumentType.greedyString()).executes(context->execute(context.getSource(),StringArgumentType.getString(context,"arguments"),message,team))));owned.get(dispatcher).put(name,node);
     }
+    /** Non-player sources keep vanilla scoreboard teams (`team add|join|modify ...`); players always get justTeams. */
+    private static int vanilla(CommandSourceStack source,String arguments){
+        CommandDispatcher<CommandSourceStack> detached=new CommandDispatcher<>();detached.getRoot().addChild(vanillaTeam);
+        try{return detached.execute("team "+arguments.strip(),source);}
+        catch(com.mojang.brigadier.exceptions.CommandSyntaxException e){source.sendFailure(net.minecraft.network.chat.Component.literal(e.getMessage()));return 0;}
+    }
+    /**
+     * Arclight copies vanilla /team into the Bukkit command map before this mod registers, so the bare label keeps
+     * vanilla's op-only permission. Release only that exact wrapper (node identity); any plugin's claim is left alone.
+     */
+    public static String releaseBukkitTeamLabel(){
+        try{
+            Object map=commandMap();Field field=null;
+            for(Class<?> type=map.getClass();type!=null&&field==null;type=type.getSuperclass())try{field=type.getDeclaredField("knownCommands");}catch(NoSuchFieldException ignored){}
+            if(field==null)return "team=UNVERIFIED(no knownCommands)";
+            field.setAccessible(true);@SuppressWarnings("unchecked")Map<String,Object> known=(Map<String,Object>)field.get(map);
+            Object entry=known.get("team");if(entry==null)return "team=absent";
+            if(!entry.getClass().getSimpleName().equals("VanillaCommandWrapper"))return "team=kept("+entry.getClass().getName()+")";
+            Field node=null;
+            for(Class<?> type=entry.getClass();type!=null&&node==null;type=type.getSuperclass())for(Field f:type.getDeclaredFields())if(CommandNode.class.isAssignableFrom(f.getType())){node=f;break;}
+            if(node==null)return "team=UNVERIFIED(no node field)";
+            node.setAccessible(true);
+            if(vanillaTeam==null||node.get(entry)!=vanillaTeam)return "team=kept(foreign VanillaCommandWrapper)";
+            known.remove("team",entry);return "team=released(vanilla wrapper)";
+        }catch(ReflectiveOperationException|RuntimeException e){return "team=UNVERIFIED("+e.getClass().getSimpleName()+")";}
+    }
+    /** Owner of each bare label in the Bukkit command map, for the boot log. */
+    public static String bukkitOwners(){
+        try{
+            Object map=commandMap();StringBuilder out=new StringBuilder();
+            for(String name:List.of("team","t","teammsg","tm","tmsg","guild","g","clan","c","party","guildmsg","gmsg","clanmsg","cmsg","partymsg")){
+                Object command=map.getClass().getMethod("getCommand",String.class).invoke(map,name);
+                out.append(name).append('=').append(command==null?"brigadier":command.getClass().getSimpleName()).append(' ');
+            }
+            return out.toString().trim();
+        }catch(ReflectiveOperationException|RuntimeException e){return "UNVERIFIED("+e.getClass().getSimpleName()+")";}
+    }
+    private static Object commandMap()throws ReflectiveOperationException{Object server=Class.forName("org.bukkit.Bukkit").getMethod("getServer").invoke(null);return server.getClass().getMethod("getCommandMap").invoke(server);}
     @SuppressWarnings("unchecked") private static void remove(CommandNode<?> root,String name) {
         try{for(String field:List.of("children","literals","arguments")){Field f=CommandNode.class.getDeclaredField(field);f.setAccessible(true);((Map<String,?>)f.get(root)).remove(name);}}
         catch(ReflectiveOperationException e){throw new IllegalStateException("cannot replace donor command aliases");}
     }
-    private static int execute(CommandSourceStack source,String arguments,boolean message) {
+    private static int execute(CommandSourceStack source,String arguments,boolean message,boolean vanillaRoot) {
         TeamsCore core=TeamsMod.core();String[] args=arguments.isBlank()?new String[0]:arguments.strip().split("\\s+");
+        if(vanillaRoot&&vanillaTeam!=null&&source.getPlayer()==null&&args.length>0&&VANILLA_TEAM.contains(args[0].toLowerCase(Locale.ROOT)))return vanilla(source,arguments);
         try {
             if(source.getPlayer()!=null&&!TeamsCore.authenticated(source.getPlayer()))throw new TeamsCore.Refusal("LOGIN_REQUIRED");
             if(args.length>0&&(args[0].equalsIgnoreCase("admin")||args[0].equalsIgnoreCase("reload"))) {
@@ -39,6 +83,7 @@ public final class TeamCommands {
                 String action=args.length>1?args[1].toLowerCase(Locale.ROOT):source.getPlayer()==null?"status":"gui";
                 if(action.equals("status")){String status=core.status();source.sendSuccess(()->net.minecraft.network.chat.Component.literal(status),false);return 1;}
                 if(action.equals("pending")){for(var pending:core.store.pendingOperations()){String row=pending.opid()+" team="+pending.teamId()+" kind="+pending.kind()+" phase="+pending.phase();source.sendSuccess(()->net.minecraft.network.chat.Component.literal(row),false);}return 1;}
+                if(action.equals("chestrecover")){require(args,3);String result=core.chests.recover(args[2],args.length>3&&args[3].equalsIgnoreCase("apply"));TeamsMod.LOG.warn("[pxc-teams] chest recovery by {}: {}",source.getTextName(),result);source.sendSuccess(()->net.minecraft.network.chat.Component.literal(result),true);return 1;}
                 ServerPlayer admin=source.getPlayerOrException();core.requireAdmin(admin);
                 if(action.equals("gui")){core.menus.admin(admin,0);return 1;}
                 require(args,3);var target=core.store.teamNamed(args[2]).orElseThrow(()->new TeamsCore.Refusal("UNKNOWN_TEAM"));

@@ -203,6 +203,72 @@ public final class TeamChests {
             player.connection.disconnect(Texts.of("justTeams inventory quarantined; retained in journal op="+op));
         }
     }
+    /**
+     * Operator recovery of one FROZEN chest operation, actor offline. The rightful actor state is derived from where the
+     * stored chest actually is: still at chestBefore/generationBefore (commit absent, or a close-path op that never touches
+     * the chest) -> playerBefore + cursorBefore; at chestAfter/generationAfter (commit landed) -> playerAfter + cursorAfter.
+     * The offline player.dat inventory must still equal the quarantined inventory. Anything else is refused. The cursor
+     * stack becomes one claimable ESCROW, never a second copy. Dry-run unless apply.
+     */
+    public synchronized String recover(String opid,boolean apply)throws Exception {
+        JsonObject record=latestJournal(opid);if(record==null)throw new TeamsCore.Refusal("RECOVERY_NO_JOURNAL");
+        if(!record.get("phase").getAsString().equals("FROZEN"))throw new TeamsCore.Refusal("RECOVERY_NOT_FROZEN");
+        UUID actor=UUID.fromString(record.get("player").getAsString());int team=record.get("team").getAsInt();JsonObject payload=record.getAsJsonObject("payload").deepCopy();
+        Operation operation=core.store.operation(opid).orElse(null);
+        if(operation!=null&&(!operation.kind().equals("CHEST")||!Objects.equals(operation.player(),actor)||Set.of("DONE","CANCELLED","ESCROW","COMPLETED","COMPENSATED","FAILED","REJECTED").contains(operation.phase())))throw new TeamsCore.Refusal("RECOVERY_SQL_STATE");
+        if(core.server.getPlayerList().getPlayer(actor)!=null)throw new TeamsCore.Refusal("RECOVERY_ACTOR_ONLINE");
+        if(team>0&&leases.containsKey(team))throw new TeamsCore.Refusal("CHEST_IN_USE");
+        if(!payload.has("playerBefore")||!payload.has("cursorBefore")||!payload.has("quarantinedInventory")||payload.has("claimBefore"))throw new TeamsCore.Refusal("RECOVERY_UNSUPPORTED_PAYLOAD");
+        String decision,inventory,cursorJson;
+        if(payload.has("generationBefore")){
+            Chest stored=core.store.chest(team).orElse(null);long storedGeneration=stored==null?0:stored.generation();String storedJson=stored==null?null:stored.inventoryJson();
+            boolean before=storedGeneration==payload.get("generationBefore").getAsLong()&&sameChest(storedJson,payload.get("chestBefore").getAsString());
+            boolean after=payload.has("chestAfter")&&payload.has("generationAfter")&&storedGeneration==payload.get("generationAfter").getAsLong()&&sameChest(storedJson,payload.get("chestAfter").getAsString());
+            if(before==after)throw new TeamsCore.Refusal("RECOVERY_CHEST_UNRECOGNISED");
+            if(after&&(!payload.has("playerAfter")||!payload.has("cursorAfter")))throw new TeamsCore.Refusal("RECOVERY_UNSUPPORTED_PAYLOAD");
+            decision=before?"COMMIT_ABSENT":"COMMIT_LANDED";inventory=payload.get(before?"playerBefore":"playerAfter").getAsString();cursorJson=payload.get(before?"cursorBefore":"cursorAfter").getAsString();
+        }else{decision="CLOSE_PATH";inventory=payload.get("playerBefore").getAsString();cursorJson=payload.get("cursorBefore").getAsString();}
+        Path root=core.server.getWorldPath(LevelResource.PLAYER_DATA_DIR).toAbsolutePath().normalize();Path target=root.resolve(actor+".dat").normalize();
+        if(!target.startsWith(root)||!Files.isRegularFile(target)||Files.isSymbolicLink(target))throw new TeamsCore.Refusal("RECOVERY_PLAYER_DATA_MISSING");
+        CompoundTag data=NbtIo.readCompressed(target,NbtAccounter.unlimitedHeap());
+        ListTag quarantined=listTag(payload.get("quarantinedInventory").getAsString()),rightful=listTag(inventory);
+        if(!data.getList("Inventory",Tag.TAG_COMPOUND).equals(quarantined))throw new TeamsCore.Refusal("RECOVERY_PLAYER_DATA_CHANGED");
+        ItemStack cursor=NativeChestCodec.decode(cursorJson,core.server.registryAccess()).getFirst();
+        String report="op="+opid+" team="+team+" decision="+decision+" inventoryChange="+!rightful.equals(quarantined)+" escrow="+(cursor.isEmpty()?"none":cursor.getCount()+"x"+net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(cursor.getItem()));
+        if(!apply)return "DRY-RUN "+report;
+        payload.addProperty("recovery",decision);payload.addProperty("recoveryInventory",inventory);payload.addProperty("recoveryAt",System.currentTimeMillis());
+        append(opid,team,actor,"RECOVERY_INTENT",payload);if(operation!=null)core.store.updateOperation(opid,"RECOVERY_INTENT",payload.toString());
+        data.put("Inventory",rightful.copy());Path temporary=root.resolve(actor+".dat.pxcteams-recovery");NbtIo.writeCompressed(data,temporary);
+        try(FileChannel channel=FileChannel.open(temporary,StandardOpenOption.WRITE)){channel.force(true);}
+        Files.move(temporary,target,StandardCopyOption.REPLACE_EXISTING,StandardCopyOption.ATOMIC_MOVE);
+        if(!NbtIo.readCompressed(target,NbtAccounter.unlimitedHeap()).getList("Inventory",Tag.TAG_COMPOUND).equals(rightful))throw new TeamsCore.Refusal("RECOVERY_PLAYER_SAVE_UNVERIFIED");
+        String phase=!cursor.isEmpty()?"ESCROW":decision.equals("COMMIT_LANDED")?"DONE":"CANCELLED";payload.addProperty("cursorEscrow",cursor(cursor));
+        if(operation==null)core.store.beginOperation(opid,team,actor,"CHEST",0,phase,payload.toString());else core.store.updateOperation(opid,phase,payload.toString());
+        append(opid,team,actor,phase,payload);
+        if(payload.has("previousOp")){String previous=payload.get("previousOp").getAsString();if(core.store.operation(previous).map(o->!o.phase().equals("DONE")).orElse(false)){core.store.updateOperation(previous,"DONE","{\"supersededBy\":\""+opid+"\"}");append(previous,team,actor,"DONE",payload);}}
+        Set<UUID> players=new HashSet<>();Set<Integer> teams=new HashSet<>();frozenFromJournal(players,teams);
+        if(!players.contains(actor))frozenPlayers.remove(actor);if(team>0&&!teams.contains(team))frozenTeams.remove(team);
+        return "APPLIED "+report+" phase="+phase+" actorFrozen="+frozenPlayers.contains(actor)+" teamFrozen="+frozenTeams.contains(team);
+    }
+    private boolean sameChest(String stored,String journalled)throws Exception {
+        List<ItemStack> a=stored==null?new ArrayList<>():new ArrayList<>(NativeChestCodec.decode(stored,core.server.registryAccess())),b=new ArrayList<>(NativeChestCodec.decode(journalled,core.server.registryAccess()));
+        // Paid-tier padding appends EMPTY slots only; compare after padding the shorter list.
+        while(a.size()<b.size())a.add(ItemStack.EMPTY);while(b.size()<a.size())b.add(ItemStack.EMPTY);
+        for(int i=0;i<a.size();i++)if(!ItemStack.matches(a.get(i),b.get(i)))return false;return true;
+    }
+    private static ListTag listTag(String snbt)throws Exception {
+        Tag tag=new TagParser(new com.mojang.brigadier.StringReader(snbt)).readValue();if(!(tag instanceof ListTag list))throw new TeamsCore.Refusal("RECOVERY_INVENTORY_INVALID");return list;
+    }
+    private JsonObject latestJournal(String opid)throws Exception {
+        if(!Files.exists(wal))return null;JsonObject latest=null;
+        try(var reader=Files.newBufferedReader(wal,StandardCharsets.UTF_8)){String line;while((line=reader.readLine())!=null){if(line.isBlank())continue;JsonObject record=JsonParser.parseString(line).getAsJsonObject();if(record.has("opid")&&record.get("opid").getAsString().equals(opid))latest=record;}}
+        return latest;
+    }
+    private void frozenFromJournal(Set<UUID> players,Set<Integer> teams)throws Exception {
+        if(!Files.exists(wal))return;Map<String,JsonObject> latest=new LinkedHashMap<>();
+        try(var reader=Files.newBufferedReader(wal,StandardCharsets.UTF_8)){String line;while((line=reader.readLine())!=null){if(line.isBlank())continue;JsonObject record=JsonParser.parseString(line).getAsJsonObject();latest.put(record.get("opid").getAsString(),record);}}
+        for(JsonObject record:latest.values())if(!Set.of("DONE","CANCELLED","ESCROW").contains(record.get("phase").getAsString())){players.add(UUID.fromString(record.get("player").getAsString()));int team=record.get("team").getAsInt();if(team>0)teams.add(team);}
+    }
     private void restoreQuarantine()throws Exception {
         if(!Files.exists(wal))return;Map<String,JsonObject> latest=new LinkedHashMap<>();
         try(var reader=Files.newBufferedReader(wal,StandardCharsets.UTF_8)){String line;while((line=reader.readLine())!=null){if(line.isBlank())continue;JsonObject record=JsonParser.parseString(line).getAsJsonObject(),head=new JsonObject();for(String key:List.of("opid","player","team","phase")){if(!record.has(key)||record.get(key).isJsonNull())throw new TeamsCore.Refusal("CHEST_JOURNAL_INVALID");head.add(key,record.get(key));}String op=head.get("opid").getAsString();JsonObject previous=latest.get(op);if(previous!=null&&(!previous.get("player").equals(head.get("player"))||!previous.get("team").equals(head.get("team"))))throw new TeamsCore.Refusal("CHEST_JOURNAL_IDENTITY_CHANGED");latest.put(op,head);}}
