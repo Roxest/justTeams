@@ -82,7 +82,7 @@ public final class TeamsCore implements AutoCloseable {
     public static boolean authenticated(ServerPlayer player) {
         // Server-owned Carpet actors are test/automation identities, never client-supplied subclasses.
         if(player.getClass().getName().equals("carpet.patches.EntityPlayerMPFake")&&testActorsAllowed())return true;
-        if(!FabricLoader.getInstance().isModLoaded("pxc-auth"))return player.getServer()!=null&&player.getServer().usesAuthentication();
+        if(!FabricLoader.getInstance().isModLoaded("pxc-auth")){Boolean hybrid=AuthMeBridge.authenticated(player.getUUID(),player.getGameProfile().getName());return hybrid!=null?hybrid:player.getServer()!=null&&player.getServer().usesAuthentication();}
         try {
             Class<?> state=Class.forName("com.pixelclub.auth.api.AuthState");
             for(String name:List.of("isAuthenticated","isLoggedIn")) {
