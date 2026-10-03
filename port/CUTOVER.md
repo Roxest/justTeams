@@ -3,16 +3,21 @@
 NOT GO. Based on the 2026-10-03 living note `00-now/justTeams Fabric cutover — ทำต่อจากตรงนี้.md`.
 Source/artifact readiness is separate from placement: **no justTeams PRD placement done**.
 GUI may still change; pin final source/overlay/converter/full-bundle hashes together.
-Latest application candidate SHA256: **fa1343d04899f00e0a231ab0a78eaeccfb41e395043b3b379afdba90b309c9ed**,
-application source4d1d7f9, private prereleasev2.5.5-pxc.1-rc1 (remote digest verified).
+Latest application candidate SHA256: **6864630f29a2b33cc0299e3cfcbca4335a1916e459c8208b8460165835567487**,
+application source10a879b; prior private prereleasev2.5.5-pxc.1-rc1/fa is superseded.
 Immutable artifact:
-`F:/Pixelclub/scratch/justteams-cutover-20261002/artifacts/JustTeams-2.5.5+pxc.1-fa1343d0.jar`.
-Broad native matrix/auth passed prior4ad; final candidate targeted acceptance still pending.
+`F:/Pixelclub/scratch/justteams-cutover-20261002/artifacts/JustTeams-2.5.5+pxc.1-6864630f.jar`.
+Broad native matrix/auth passed4ad; fa cap/tier/refund/auth/cold passed;686 chest27->36/
+rich-tail transaction/cold/watchdog passed. Rendered45/54/shrink/GUI and full target gates pending.
 This document authorizes no server change.
 
 Immutable loader-specific originals, retained outside every server directory:
 
-- Original DEV Fabric2.5.5: `162dfd8c551497d08fcfe64dbbcc09437812a8ca1ae3eddf442408e6cf72e86a`.
+- Historical Fabric2.5.5 reference/standalone driver: `162dfd8c551497d08fcfe64dbbcc09437812a8ca1ae3eddf442408e6cf72e86a`.
+- Current DEV pre-canary disk baseline: `mods/justTeams-2.5.5.jar`,
+  `002a0e76b9695f8f029cdd4b080c68f8cf2fac7e7476b122524b406742347323`.
+  Preserve THIS exact current artifact/configs off-server for DEV rollback; metadata/loaded identity
+  must be recorded. Do not silently restore the historical162df reference into DEV.
 - PRD donor Bukkit2.5.5: `36c725c1c15afcb546142b9933a40ee14499cffe55daa1d415f9cca7c4bef8af`.
 - Existing live forward79/2376slots/584items and reverse80/rich-fixture proofs are reference only,
   cold_verified=false. Reserved fixture team2147483647 never enters a live manifest/import.
@@ -25,7 +30,7 @@ record rollback decision time. No money/refund/price/system-removal/client chang
 
 Tools primary fbaed118...c9f0/source7c57f97 is Kraus-selected; obtain full SHA/owner release.
 AE/Spawner/PAPI collector-monthly/worlds remain owner HOLD. PAPI released shared DEV04:12ICT;
-Tools holds the following window until its explicit baseline/owner handoff. Recheck current owner;
+Tools explicitly returned baseline and root's next window09:04ICT. Recheck current owner/state;
 no overlapping restart/deploy. Finish DEV before PRD, never during PRD work.
 
 Require actual full mod/library/nested-JiJ roster, MC1.21.1/loader/provider/auth/permissions versions,
@@ -118,7 +123,8 @@ reverse_sha256 hashes reverse_blob UTF8 TEXT, not decoded Base64. Require exact 
 generation/original hashes/full sets. Null originals need new native+absent/empty donor.
 Atomic donor UPDATE/INSERT+addon DELETE preserves completed journals/money/accounts/schema; no replay.
 
-Cold restore loader-specific ORIGINAL from off-server copy: DEV Fabric162dfd...; PRD Bukkit36c725...
+Cold restore exact pre-window artifact/configs from off-server copies: DEV current002a0e76...;
+historicalFabric162dfd is a reference, not an assumed DEV rollback. PRD Bukkit36c725...
 requires original approved Arclight/world/auth bundle, never a Bukkit plugin on pure Fabric.
 Recheck invariants/boot/readback/whitelist; retain addon schema/audit.
 Nonzero --apply may mean SQL commit-I/O UNKNOWN, not definite rollback; empty proof proves nothing.
