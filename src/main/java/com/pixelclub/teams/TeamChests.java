@@ -73,7 +73,8 @@ public final class TeamChests {
             Lease lease=new Lease();lease.team=team.id();lease.player=player.getUUID();lease.generation=sourceGeneration;lease.original=sourceHash;lease.admin=admin;
             lease.inventory=new ChestSessionContainer(lease.team,lease.player,lease.generation,inventory,()->lease.open&&leases.get(lease.team)==lease);
             leases.put(lease.team,lease);
-            player.openMenu(new SimpleMenuProvider((id,inv,p)->{lease.menu=new Menu(id,inv,lease);return lease.menu;},Texts.of(core.settings.message("team_enderchest_title","Team chest"))));
+            try{player.openMenu(new SimpleMenuProvider((id,inv,p)->{lease.menu=new Menu(id,inv,lease);return lease.menu;},Texts.of(core.settings.message("team_enderchest_title","Team chest"))));}
+            catch(RuntimeException error){lease.open=false;lease.inventory.revoke();leases.remove(lease.team,lease);throw error;}
             if(player.containerMenu==lease.menu)return true;
             // Another mod may refuse the screen; an unopened lease must not lock the team chest while its holder stays online.
             lease.open=false;lease.inventory.revoke();leases.remove(lease.team,lease);return false;

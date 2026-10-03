@@ -2,13 +2,15 @@
 
 NOT GO. Based on the 2026-10-03 living note `00-now/justTeams Fabric cutover — ทำต่อจากตรงนี้.md`.
 Source/artifact readiness is separate from placement: **no justTeams PRD placement done**.
-GUI may still change; pin final source/overlay/converter/full-bundle hashes together.
-Latest application candidate SHA256: **6864630f29a2b33cc0299e3cfcbca4335a1916e459c8208b8460165835567487**,
-application source10a879b; prior private prereleasev2.5.5-pxc.1-rc1/fa is superseded.
-Immutable artifact:
-`F:/Pixelclub/scratch/justteams-cutover-20261002/artifacts/JustTeams-2.5.5+pxc.1-6864630f.jar`.
-Broad native matrix/auth passed4ad; fa cap/tier/refund/auth/cold passed;686 chest27->36/
-rich-tail transaction/cold/watchdog passed. Rendered45/54/shrink/GUI and full target gates pending.
+Pin final source/overlay/converter/full-bundle hashes together.
+Latest application candidate SHA256: **65b8a05b08e38efbf142cb5808588c459c458688e30a1f493ad2ae36531f4575**
+(main after `0347eb3`); DEV loaded `38a91b9b...` differs in the off-server CLI and openMenu-throw lease cleanup.
+Chest converter addon SHA256: **ca7a0837d812e17b91d512daa544ce5988ad2253a10498b7fd2bdc66ab43cbae**.
+The earlier converter `5c2dd476...` REFUSES `export-native` input (no `generation` field): never use it
+for the rollback lane. Immutable artifacts in
+`F:/Pixelclub/scratch/justteams-cutover-20261002/artifacts/`. Evidence: [digest-acceptance-20261003.md](digest-acceptance-20261003.md).
+Upgrades GUI seen, 45/54/shrink/SQL-loss custody state, fixture cold lane + rollback passed; Docker-gated
+host rehearsal, FROZEN-op operator recovery and full target gates pending.
 This document authorizes no server change.
 
 Immutable loader-specific originals, retained outside every server directory:
@@ -122,6 +124,11 @@ prove native->Bukkit->native slots/components. Reverse source_file_sha256 binds 
 reverse_sha256 hashes reverse_blob UTF8 TEXT, not decoded Base64. Require exact current JSON/
 generation/original hashes/full sets. Null originals need new native+absent/empty donor.
 Atomic donor UPDATE/INSERT+addon DELETE preserves completed journals/money/accounts/schema; no replay.
+Generation-1 imported rows (never saved natively) keep their exact original donor bytes; only changed or
+new native chests receive reverse blobs (`0347eb3`).
+PC fixture rehearsal (real CLI `--fixture-root`, real converter rig, 79 live donor blobs) measured tool time:
+forward lane 56 s (convert 52 s incl. rig boot, import 0.7 s, readback 2.4 s); rollback lane 55 s (export 0.7 s,
+reverse 52 s, rollback 0.7 s, readback 1.4 s). Excludes PRD save/stop/boot/postboot and Docker gating.
 
 Cold restore exact pre-window artifact/configs from off-server copies: DEV current002a0e76...;
 historicalFabric162dfd is a reference, not an assumed DEV rollback. PRD Bukkit36c725...

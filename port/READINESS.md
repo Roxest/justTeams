@@ -1,12 +1,11 @@
 # justTeams candidate readiness, 2026-10-03
 
-Candidate, not cutover GO. Application source10a879b; SHA256
-`6864630f29a2b33cc0299e3cfcbca4335a1916e459c8208b8460165835567487`.
-Immutable local artifact:
-`F:/Pixelclub/scratch/justteams-cutover-20261002/artifacts/JustTeams-2.5.5+pxc.1-6864630f.jar`.
-Earlier private prerelease `v2.5.5-pxc.1-rc1`/fa1343d0 is superseded by the paid-chest-capacity fix.
-Build/tests108 passed; focused chest-growth source refute found no HIGH/MEDIUM.
-No justTeams PRD/shared-DEV placement or restart performed.
+Candidate, not cutover GO. Application source main (after `0347eb3`); SHA256
+`65b8a05b08e38efbf142cb5808588c459c458688e30a1f493ad2ae36531f4575`; converter addon
+`ca7a0837d812e17b91d512daa544ce5988ad2253a10498b7fd2bdc66ab43cbae`. DEV runs `38a91b9b...` (`7eaaae2`),
+server classes identical except openMenu-throw lease cleanup. Build/tests 120 passed. Afternoon round evidence:
+[digest-acceptance-20261003.md](digest-acceptance-20261003.md). Earlier candidates (4ad/fa/686/7dd) keep
+their own attributions below. No justTeams PRD placement or restart performed.
 
 ## Covered evidence
 
@@ -40,25 +39,21 @@ and exact cold readback passed. State evidence does not imply rendered-client ev
 
 ## Remaining acceptance
 
-1. Actual native TCP pxc-auth UNAUTHENTICATED denial -> /login PASSWORD AUTHENTICATED ->
-   reversible team action passed on4ad with target Pack1.8.12/Pxc0.1.5/LP5.4.140 and no
-   testActors flag. Finalfa cap/reload/tiers/refund/.01provider pair passed real TCP auth.
-   Current686 still requires rendered GUI and45/54/shrink custody acceptance. Approved
-   eyes1.16 genuinely crypto-rejected both own AC1.18.8 and target-disk1.18.9; transient
-   client connected=true was refuted by server NOT_CONNECTED/coreAuthenticatedfalse.
-   Matching approved client/server context is required, no spoof/control bypass.
-2. Exact donor SFTP07:33ICT confirms settings.glow.enabled=false. Preserve disabled gate.
-   TAB-owned outline colour seam is future parity; entity flags are tested. No competing
-   scoreboard team should be introduced or inactive feature enabled without Kraus.
-3. Tools explicitly returned DEV baseline/root lease09:04ICT; current canary preflight
-   found existing JustTeams disk SHA002a0e76... differs historical162df original, so preserve
-   exact current baseline for rollback. No root DEV stage yet. Need target full bundle/
-   world roster/real auth/rendered acceptance. Own686 watchdog PASS12051 actual ticks,
-   n21/30s,08:40:16-08:50:18ICT; every ready/snapshot/provider sample healthy.
-4. Coordinator current full world/registry manifest including SW6 and nested live End,
-   verified backup+isolated restore, fresh cold source, exact private donor settings,
-   forward/reverse/cold CLI rehearsals, and coupled AE/Tools/Spawner/AJ collector gates.
-5. Kraus's specific PRD restart window and coordinator admission decision.
+Closed this round (rung in digest): Upgrades GUI seen on hybrid DEV; GUI-handler purchase/locked state;
+chest 36->45->54, shrink retention, SQL-loss custody + cold quarantine readback (state, Carpet, pxc-auth held
+out of the rig for that run only); lease release on refused screen; fixture cold lane + rollback with real CLI
+and converter (money/members/other tables/untouched chest bytes exact).
+
+1. Operator recovery for a FROZEN chest op does not exist: team stays blocked; the escrow copy must be
+   CANCELLED, never returned, when the stored chest still holds the stack. Needs a cold, hash-checked tool or
+   written procedure before GO.
+2. Host rehearsal of the Docker-gated CLI against a separate catalog (not `pixelclub`) and real MySQL; Kraus
+   chose PC fixture only for 2026-10-03.
+3. Full target: pure-Fabric bundle/world registry incl. SW6 + nested live End, verified backup + isolated
+   restore, fresh cold source on the PRD window, AE/Tools/Spawner/AJ collector gates.
+4. Hybrid only: `/team` alias collides with Bukkit vanilla; `/t` proven. Pure-Fabric command surface pending.
+5. Owner/CO settings/requests GUI and locked-bank rendering not seen with the member-only DEV profile.
+6. Kraus's specific PRD window, then coordinator admission decision.
 
 [CUTOVER.md](CUTOVER.md) is the mechanical cold import/rollback runbook. Cold CLI writes
 addon chest rows atomically and refuses unsettled obligations. Rollback preserves latest
