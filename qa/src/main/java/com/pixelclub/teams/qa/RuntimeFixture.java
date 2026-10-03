@@ -46,7 +46,7 @@ public final class RuntimeFixture implements ModInitializer {
     }
     private static void guard()throws Exception {
         Path root=FabricLoader.getInstance().getGameDir().toAbsolutePath().normalize();
-        if(!Boolean.getBoolean("pxcteams.testActors")||!Files.isRegularFile(root.resolve(".justteams-synthetic-fixture")))throw new IllegalStateException("marked testActors fixture required");
+        if((!Boolean.getBoolean("pxcteams.testActors")&&!Files.isRegularFile(root.resolve(".justteams-real-auth-fixture")))||!Files.isRegularFile(root.resolve(".justteams-synthetic-fixture")))throw new IllegalStateException("marked test/auth fixture required");
         Properties properties=new Properties();try(var reader=Files.newBufferedReader(root.resolve("server.properties"))){properties.load(reader);}
         if(!"127.0.0.1".equals(properties.getProperty("server-ip")))throw new IllegalStateException("strict loopback required");
     }
@@ -60,7 +60,8 @@ public final class RuntimeFixture implements ModInitializer {
     private static ServerPlayer player(net.minecraft.server.MinecraftServer server,String name){
         if(!NAMES.contains(name))throw new IllegalArgumentException("synthetic name required");
         ServerPlayer player=server.getPlayerList().getPlayerByName(name);
-        if(player==null||!player.getClass().getName().equals("carpet.patches.EntityPlayerMPFake"))throw new IllegalArgumentException("synthetic Carpet actor absent");
+        if(player==null)throw new IllegalArgumentException("synthetic actor absent");
+        if(!player.getClass().getName().equals("carpet.patches.EntityPlayerMPFake"))try{if(!Files.isRegularFile(FabricLoader.getInstance().getGameDir().resolve(".justteams-real-auth-fixture"))||!Boolean.TRUE.equals(Class.forName("com.pixelclub.auth.api.AuthState").getMethod("isAuthenticated",UUID.class).invoke(null,player.getUUID())))throw new IllegalArgumentException("actual synthetic session must be authenticated");}catch(ReflectiveOperationException e){throw new IllegalArgumentException("native auth API unavailable",e);}
         return player;
     }
     private static Object execute(net.minecraft.server.MinecraftServer server,String args)throws Exception {
@@ -72,6 +73,18 @@ public final class RuntimeFixture implements ModInitializer {
         Object core=core();
         switch(parts[0]){
             case "status":return call(core,"status",NONE);
+            case "authstate":{
+                if(!Set.of("JTMoneyOwner","PxcEyes2").contains(parts[1]))throw new IllegalArgumentException("synthetic auth identity required");UUID id=offline(parts[1]);Class<?> auth=Class.forName("com.pixelclub.auth.api.AuthState");ServerPlayer online=server.getPlayerList().getPlayer(id);
+                return Map.of("status",String.valueOf(auth.getMethod("status",UUID.class).invoke(null,id)),"session",auth.getMethod("sessionId",UUID.class).invoke(null,id),"provider",String.valueOf(auth.getMethod("provider").invoke(null)),"playerClass",online==null?"absent":online.getClass().getName(),"testActorsFlag",Boolean.getBoolean("pxcteams.testActors"));
+            }
+            case "seedeyes":{
+                UUID id=offline("PxcEyes2");Object store=field(core,"store");
+                if(rows(store,"player_cache").stream().noneMatch(row->row.get("player_uuid").toString().equals(id.toString())))call(store,"insertRow",new Class<?>[]{String.class,Map.class},"player_cache",Map.of("player_uuid",id,"player_name","PxcEyes2"));
+                if(((Optional<?>)call(store,"teamOf",new Class<?>[]{UUID.class},id)).isEmpty())call(store,"joinPublic",new Class<?>[]{UUID.class,int.class,int.class},id,1,10);call(core,"refresh",new Class<?>[]{UUID.class},id);return "synthetic local PxcEyes2 member seeded; no wallet or auth credential copied";
+            }
+            case "watchdog":{Field ticks=core.getClass().getDeclaredField("ticks");ticks.setAccessible(true);return Map.of("ticks",ticks.getLong(core),"ready",call(core,"ready",NONE),"snapshotHealthy",call(field(core,"snapshots"),"healthy",NONE),"provider",call(field(core,"bank"),"available",NONE));}
+            case "refundcase":{ServerPlayer p=player(server,"JTMoneyOwner");Object bank=field(core,"bank");String op="qa_historical_refund_"+System.currentTimeMillis();Object result=call(bank,"charge",new Class<?>[]{String.class,UUID.class,double.class,boolean.class},op,p.getUUID(),20d,true);if(!Boolean.TRUE.equals(call(result,"success",NONE)))throw new IllegalStateException("fixture charge refused");Object finished=call(bank,"finishCharge",new Class<?>[]{String.class,boolean.class},op,false);return Map.of("finished",finished,"state",snapshot(server,core,"historical-compensation"));}
+            case "capacity":{ServerPlayer p=player(server,parts[1]);Object team=call(core,"requireTeam",new Class<?>[]{ServerPlayer.class},p);return call(core,"capacity",new Class<?>[]{Class.forName("com.pixelclub.teams.store.Team")},team);}
             case "seedprofiles":{
                 for(String name:NAMES){UUID uuid=UUID.nameUUIDFromBytes(("OfflinePlayer:"+name).getBytes(java.nio.charset.StandardCharsets.UTF_8));server.getProfileCache().add(new GameProfile(uuid,name));}
                 return "three explicit synthetic offline profiles cached before Carpet spawn";
@@ -243,6 +256,7 @@ public final class RuntimeFixture implements ModInitializer {
         String[] a=arguments.split("\\s+");ServerPlayer p=player(server,a[0]);
         return switch(method){
             case "role"->call(core,method,new Class<?>[]{ServerPlayer.class,UUID.class,boolean.class},p,offline(a[1]),Boolean.parseBoolean(a[2]));
+            case "upgrade"->call(core,method,new Class<?>[]{ServerPlayer.class},p);
             case "kick"->call(core,method,new Class<?>[]{ServerPlayer.class,UUID.class},p,offline(a[1]));
             case "editFlag"->call(core,method,new Class<?>[]{ServerPlayer.class,UUID.class,String.class,boolean.class},p,offline(a[1]),a[2],Boolean.parseBoolean(a[3]));
             case "member"->call(field(core,"menus"),method,new Class<?>[]{ServerPlayer.class,UUID.class},p,offline(a[1]));
@@ -258,6 +272,7 @@ public final class RuntimeFixture implements ModInitializer {
     private static Object control(Object core,String method,String arguments)throws Exception{
         Object store=field(core,"store");String[] a=arguments.split("\\s+");
         switch(method){
+            case "tier":Field data=core.getClass().getDeclaredField("data");data.setAccessible(true);try(java.sql.Connection c=(java.sql.Connection)call(data.get(core),"open",NONE)){if(!c.getMetaData().getURL().startsWith("jdbc:h2:file:"))throw new IllegalStateException("fixture local H2 required");try(var update=c.prepareStatement("UPDATE donut_teams SET tier=? WHERE id=1")){update.setInt(1,Integer.parseInt(a[0]));update.executeUpdate();}}call(core,"refreshTeam",new Class<?>[]{int.class},1);return "synthetic tier control";
             case "flag":call(store,"setMemberFlags",new Class<?>[]{int.class,UUID.class,Map.class},1,offline(a[0]),Map.of(a[1],Boolean.parseBoolean(a[2])));call(core,"refreshTeam",new Class<?>[]{int.class},1);return "synthetic flag control";
             case "team":Object value=Set.of("pvp_enabled","is_public","glow_enabled","join_fee_enabled").contains(a[0])?Boolean.parseBoolean(a[1]):Set.of("points").contains(a[0])?Long.parseLong(a[1]):Set.of("join_fee_amount").contains(a[0])?Double.parseDouble(a[1]):arguments.substring(arguments.indexOf(a[1]));call(store,"updateTeam",new Class<?>[]{int.class,UUID.class,Map.class},1,offline("JTMoneyOwner"),Map.of(a[0],value));call(core,"refreshTeam",new Class<?>[]{int.class},1);return "synthetic team control";
             case "ally":if(Boolean.parseBoolean(a[0]))call(store,"insertRow",new Class<?>[]{String.class,Map.class},"team_allies",Map.of("team_id_1",1,"team_id_2",2));else call(store,"deleteRows",new Class<?>[]{String.class,Map.class},"team_allies",Map.of("team_id_1",1,"team_id_2",2));call(field(core,"snapshots"),"refreshAllies",NONE);return "synthetic ally control";

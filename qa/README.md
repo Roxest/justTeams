@@ -1,9 +1,13 @@
 # Isolated native JustTeams runtime fixture
 
 This addon and harness are QA only. They require the explicit fixture marker,
-`-Dpxcteams.testActors=true`, strict `server-ip=127.0.0.1`, console source, and
-the three synthetic Carpet names. They must never be installed on shared dev or
-PRD. No real account files, configs, licences, players or worlds are copied.
+strict `server-ip=127.0.0.1`, console source, and known synthetic identities.
+Carpet mode requires `-Dpxcteams.testActors=true`. The separately marked real-auth
+fixture omits that flag and requires the actual native AuthState session before
+the helper can operate on a real ServerPlayer. They must never be installed on shared dev or
+PRD. No real account files, licences, players or worlds are copied. The later
+private GUI stage contains only the six files explicitly authorised by root,
+with local H2/Redis isolation and source/output hash proof.
 
 The pinned runtime evidence and current limitations are in `port/runtime-digest.md`.
 The harness has fixed local paths for the authorised one-off fixture. It is not a
@@ -26,6 +30,17 @@ and queue own console commands using `send`. The runner records per-boot candida
 SHA/mod count, hides the Java window, caps Java at4G and forwards only its own
 mailbox. Stop with `send stop`; wait for its own runner exit before any jar swap.
 Never overwrite a live jar and never terminate an unrelated process.
+
+`prepare_auth.py` builds only a separate synthetic local H2 auth backend; its
+random account credential is owner-only outside the rig and git. Never print it
+or read the existing eyes profile secret. `vanilla_auth_client.py` uses actual
+loopback login and native password commands. PxcAC requires the approved client
+for sustained sessions; the helper never spoofs its handshake or changes auth.
+`verify_auth_boot.py` records seven native weave markers, provider/health and the
+authorised six-file private GUI stage hashes. `cold_chest.py` compares exact H2
+JSON/generation/source against a retained proof while the JVM is cold. A failed
+AC-interrupted custody attempt remains explicitly failed even if its durable
+state can be inspected independently. Root owns the approved eyes client.
 
 `run_cases.py bank` is for a new seed; `bank-resume` repeats bank behaviour without
 resetting wallets; `resume` spawns exact cached synthetic identities after a cold

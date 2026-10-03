@@ -83,7 +83,7 @@ def prepare(candidate):
     (ROOT / 'runtime-manifest.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
     print(json.dumps({'rig': str(ROOT), 'mods': len(manifest['mods']), 'sha256': manifest['sha256'], 'excluded': excluded}))
 
-def boot():
+def boot(auth_mode=False):
     marked()
     mailbox = ROOT / 'qa-commands.jsonl'
     mailbox.write_text('', encoding='utf-8')
@@ -93,10 +93,11 @@ def boot():
     candidate = next(jar for jar in jars if jar.name == 'JustTeams-2.5.5+pxc.1.jar')
     (ROOT / (log.stem+'.manifest.json')).write_text(json.dumps({'utc':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),
       'candidateSha256':hashlib.sha256(candidate.read_bytes()).hexdigest(),'mods':len(jars),
-      'ports':[25655,25656],'bind':'127.0.0.1','testActors':True},indent=2),encoding='utf-8')
+      'ports':[25655,25656],'bind':'127.0.0.1','testActors':not auth_mode},indent=2),encoding='utf-8')
     with log.open('wb') as output:
-        server = subprocess.Popen([str(JAVA), '-Xms1G', '-Xmx4G', '-Dpxcteams.testActors=true',
-          '-Dmixin.debug.export=true', '-jar', LAUNCHER, 'nogui'], cwd=ROOT,
+        options=[str(JAVA),'-Xms1G','-Xmx4G']
+        if not auth_mode:options.append('-Dpxcteams.testActors=true')
+        server = subprocess.Popen(options+['-Dmixin.debug.export=true','-jar',LAUNCHER,'nogui'], cwd=ROOT,
           stdin=subprocess.PIPE, stdout=output, stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW)
         (ROOT / 'qa-server.pid').write_text(str(server.pid), encoding='ascii')
         print(f'own rig Java PID={server.pid} log={log}', flush=True)
@@ -128,10 +129,11 @@ def summary():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('mode', choices=('prepare','boot','send','summary'))
+    parser.add_argument('mode', choices=('prepare','boot','boot-auth','send','summary'))
     parser.add_argument('argument', nargs='?')
     args = parser.parse_args()
     if args.mode == 'prepare': prepare(Path(args.argument).resolve())
     elif args.mode == 'boot': boot()
+    elif args.mode == 'boot-auth': boot(True)
     elif args.mode == 'send': send(args.argument)
     else: summary()
