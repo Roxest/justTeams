@@ -9,6 +9,7 @@ import java.sql.Statement;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -23,6 +24,7 @@ import java.util.UUID;
 public final class TeamStore {
     private static final String OPERATIONS = "pxc_teams_operations";
     private static final String CHESTS = "pxc_teams_chests";
+    private static final String CHEST_LEASES = "pxc_teams_chest_leases";
     private static final Set<String> FLAGS = Set.of("can_withdraw", "can_use_enderchest", "can_set_home", "can_use_home", "can_promote_to_co_owner", "can_edit_members", "can_edit_co_owners", "can_kick_members", "can_promote_members", "can_demote_members");
     private static final Set<String> TEAM_UPDATES = Set.of("name", "tag", "home_location", "home_server", "pvp_enabled", "is_public", "glow_enabled", "color", "gradient_start", "gradient_end", "description", "kills", "deaths", "points", "join_fee_enabled", "join_fee_amount", "alias", "accept_requests");
     private static final Set<String> GENERIC_WRITES = Set.of("team_allies", "team_ally_requests", "team_blacklist", "team_custom_data", "team_quest_progress", "team_homes", "team_rename_cooldowns", "join_requests", "player_cache", "server_aliases");
@@ -31,12 +33,19 @@ public final class TeamStore {
     private static final Set<String> FINANCIAL_TERMINAL_PHASES = Set.of("DONE", "COMPLETED", "COMPENSATED", "FAILED", "REJECTED", "CANCELLED");
     private final ConnectionFactory factory;
     private final String prefix;
+    /** This backend's server-identifier; operations it starts are recovered only by it (cross-server). */
+    private volatile String serverName;
 
     public TeamStore(ConnectionFactory factory, String prefix) {
         this.factory = Objects.requireNonNull(factory);
         if (prefix == null || !prefix.matches("[A-Za-z0-9_]+")) throw new IllegalArgumentException("Unsafe table prefix");
         this.prefix = prefix;
     }
+    public void serverName(String name) {
+        if (name == null || !name.matches("[A-Za-z0-9_.-]{1,64}")) throw new IllegalArgumentException("Unsafe server-identifier");
+        this.serverName = name;
+    }
+    public String serverName() { return serverName; }
 
     public record Operation(String opid, int teamId, UUID player, String kind, double amount,
                             String phase, String payload, long createdAt, long updatedAt) {
@@ -78,6 +87,13 @@ public final class TeamStore {
         try (Connection connection = factory.open(); Statement statement = connection.createStatement()) {
             statement.execute("CREATE TABLE IF NOT EXISTS " + OPERATIONS + " (opid VARCHAR(192) PRIMARY KEY, team_id INT NOT NULL, player_uuid VARCHAR(36), kind VARCHAR(64) NOT NULL, amount DOUBLE NOT NULL, phase VARCHAR(32) NOT NULL, payload LONGTEXT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)");
             statement.execute("CREATE TABLE IF NOT EXISTS " + CHESTS + " (team_id INT PRIMARY KEY, format_version INT NOT NULL, inventory_json LONGTEXT NOT NULL, original_sha256 VARCHAR(64), generation BIGINT NOT NULL, updated_at BIGINT NOT NULL, FOREIGN KEY(team_id) REFERENCES " + table("teams") + "(id) ON DELETE CASCADE)");
+            // Cross-server: which backend started an operation (NULL = written before +xs1, recovered by every backend as before).
+            // Two backends may boot together: the loser of the ALTER race accepts the winner's column.
+            if (!hasColumn(connection, OPERATIONS, "server_name")) {
+                try { statement.execute("ALTER TABLE " + OPERATIONS + " ADD COLUMN server_name VARCHAR(64) NULL"); }
+                catch (SQLException raced) { if (!hasColumn(connection, OPERATIONS, "server_name")) throw raced; }
+            }
+            statement.execute("CREATE TABLE IF NOT EXISTS " + CHEST_LEASES + " (team_id INT PRIMARY KEY, server_name VARCHAR(64) NOT NULL, player_uuid VARCHAR(36) NOT NULL, expires_at BIGINT NOT NULL)");
         }
     }
 
@@ -591,7 +607,7 @@ public final class TeamStore {
         if (FINANCIAL_KINDS.contains(kind) && teamId > 0 && financialTeam.isEmpty()) throw new SQLException("Financial intent requires an existing team");
         payload = Json.put(payload, "effectApplied", "false");
         long now = System.currentTimeMillis();
-        execute(connection, "INSERT INTO " + OPERATIONS + " (opid,team_id,player_uuid,kind,amount,phase,payload,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)", opid, teamId, player, kind, amount, phase, payload, now, now);
+        execute(connection, "INSERT INTO " + OPERATIONS + " (opid,team_id,player_uuid,kind,amount,phase,payload,created_at,updated_at,server_name) VALUES (?,?,?,?,?,?,?,?,?,?)", opid, teamId, player, kind, amount, phase, payload, now, now, serverName);
         return new Operation(opid, teamId, player, kind, amount, phase, payload, now, now);
     }
     public synchronized Operation updateOperation(String opid, String phase, String payload) throws SQLException {
@@ -606,6 +622,53 @@ public final class TeamStore {
             return query(connection, "SELECT * FROM " + OPERATIONS + " WHERE kind<>? AND kind<>? ORDER BY created_at,opid", "INVITE", "IDENTITY").stream().map(TeamStore::operationRow).filter(operation -> !TERMINAL_PHASES.contains(operation.phase())).toList();
         }
     }
+    /** Boot recovery scope: operations this backend started, plus pre-+xs1 rows with no owner. Another live backend's in-flight work is not ours to freeze. */
+    public List<Operation> pendingOperationsOwnedHere() throws SQLException {
+        if (serverName == null) return pendingOperations();
+        try (Connection connection = factory.open()) {
+            return query(connection, "SELECT * FROM " + OPERATIONS + " WHERE kind<>? AND kind<>? AND (server_name IS NULL OR server_name=?) ORDER BY created_at,opid", "INVITE", "IDENTITY", serverName).stream().map(TeamStore::operationRow).filter(operation -> !TERMINAL_PHASES.contains(operation.phase())).toList();
+        }
+    }
+
+    /**
+     * Cross-server team chest lease. One backend at a time may hold a team's chest; the row expires so a crashed
+     * backend cannot lock a chest forever. Same-server re-entry is decided by the caller's in-memory lease map.
+     */
+    public synchronized boolean acquireChestLease(int teamId, UUID player, long ttlMillis) throws SQLException {
+        Objects.requireNonNull(player); if (serverName == null) return true;
+        return transaction(connection -> {
+            long now = System.currentTimeMillis();
+            Optional<Map<String, Object>> row = first(connection, "SELECT * FROM " + CHEST_LEASES + " WHERE team_id=? FOR UPDATE", teamId);
+            if (row.isEmpty()) return execute(connection, "INSERT INTO " + CHEST_LEASES + " (team_id,server_name,player_uuid,expires_at) VALUES (?,?,?,?)", teamId, serverName, player, now + ttlMillis) == 1;
+            boolean ours = serverName.equals(RowData.text(row.get().get("server_name")));
+            if (!ours && ((Number) row.get().get("expires_at")).longValue() > now) return false;
+            return execute(connection, "UPDATE " + CHEST_LEASES + " SET server_name=?,player_uuid=?,expires_at=? WHERE team_id=?", serverName, player, now + ttlMillis, teamId) == 1;
+        });
+    }
+    public synchronized int renewChestLeases(Collection<Integer> teamIds, long ttlMillis) throws SQLException {
+        if (serverName == null || teamIds.isEmpty()) return 0; int renewed = 0;
+        try (Connection connection = factory.open()) {
+            for (int teamId : teamIds) renewed += execute(connection, "UPDATE " + CHEST_LEASES + " SET expires_at=? WHERE team_id=? AND server_name=?", System.currentTimeMillis() + ttlMillis, teamId, serverName);
+        }
+        return renewed;
+    }
+    public synchronized void releaseChestLease(int teamId) throws SQLException {
+        if (serverName == null) return;
+        try (Connection connection = factory.open()) { execute(connection, "DELETE FROM " + CHEST_LEASES + " WHERE team_id=? AND server_name=?", teamId, serverName); }
+    }
+    /** Boot: this backend holds no chest yet, so any row naming it is a leftover from a crash. */
+    public synchronized int releaseOwnChestLeases() throws SQLException {
+        if (serverName == null) return 0;
+        try (Connection connection = factory.open()) { return execute(connection, "DELETE FROM " + CHEST_LEASES + " WHERE server_name=?", serverName); }
+    }
+    private static boolean hasColumn(Connection connection, String table, String column) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("SELECT * FROM " + table + " WHERE 1=0"); ResultSet result = statement.executeQuery()) {
+            ResultSetMetaData metadata = result.getMetaData();
+            for (int i = 1; i <= metadata.getColumnCount(); i++) if (metadata.getColumnLabel(i).equalsIgnoreCase(column)) return true;
+            return false;
+        }
+    }
+
     public boolean isFrozen(int teamId, UUID player) throws SQLException {
         try (Connection connection = factory.open()) { return isFrozen(connection, teamId, player); }
     }

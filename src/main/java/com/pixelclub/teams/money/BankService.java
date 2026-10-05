@@ -94,6 +94,13 @@ public final class BankService {
             throw error;
         }
     }
+    private boolean bankReceiptMatches(String opid,double delta)throws Exception{
+        Operation row=store.operation(opid).orElse(null);if(row==null||!row.effectApplied())return false;
+        JsonObject receipt=JsonParser.parseString(row.payload()).getAsJsonObject();
+        if(!receipt.has("bankDelta")||!receipt.has("bankBalanceBefore")||!receipt.has("bankBalanceAfter"))return false;
+        double recorded=receipt.get("bankDelta").getAsDouble(),before=receipt.get("bankBalanceBefore").getAsDouble(),after=receipt.get("bankBalanceAfter").getAsDouble();
+        return PackEconomy.same(recorded,delta)&&PackEconomy.same(after-before,delta);
+    }
     public synchronized void unknownCharge(String opid,String reason) throws Exception {if(store.operation(opid).isPresent())store.freezeOperation(opid,reason);}
     public synchronized Result transfer(String opid,UUID player,boolean deposit,double rawAmount,double rawFee,boolean bypass) {
         double amount,fee;
@@ -154,8 +161,10 @@ public final class BankService {
                 if(!economy.change(player,amount-fee,"pxc:team-bank:"+opid)||!economy.flushConfirmed(player,playerExpected))return freeze(opid,"PLAYER_OUTCOME_UNKNOWN",payload);
             }
             // Re-read both legs. A result is success only after account persistence and SQL commit receipts.
+            // +xs1: the bank leg is proven by this operation's own committed row (delta recorded under the team-row lock),
+            // not by the live balance: another backend may legally move the same team's balance in between.
             double after=economy.balance(player);double bankAfter=store.team(team.id()).orElseThrow().balance();
-            if(!PackEconomy.same(after,playerExpected)||!PackEconomy.same(bankAfter,bankBefore+(deposit?amount:-amount)))return freeze(opid,"FINAL_READBACK_MISMATCH",payload);
+            if(!PackEconomy.same(after,playerExpected)||!bankReceiptMatches(opid,deposit?amount:-amount))return freeze(opid,"FINAL_READBACK_MISMATCH",payload);
             store.updateOperation(opid,"DONE",payload.toString());append(opid,"DONE",payload);
             return new Result(true,false,"DONE",opid,before,after,bankBefore,bankAfter);
         } catch(Exception e) {
