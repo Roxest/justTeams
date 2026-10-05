@@ -29,8 +29,8 @@ public final class TeamsMod implements ModInitializer {
         ServerLifecycleEvents.SERVER_STARTED.register(server->{
             if(legacyEnabled()){problem="BukkitJustTeamsEnabled";LOG.info("[pxc-teams] DORMANT: Bukkit JustTeams is enabled");return;}
             if(bukkitApiPresent()){TeamCommands.register(server.getCommands().getDispatcher(),settings);LOG.info("[pxc-teams] command labels: {} | {}",TeamCommands.releaseBukkitTeamLabel(server.getCommands(),server.getCommands().getDispatcher()),TeamCommands.bukkitOwners());}
-            try{core=new TeamsCore(server,settings);problem="";LOG.info("[pxc-teams] native 2.5.5+pxc.4 ready: {}",core.status());}
-            catch(Exception e){problem=e.getClass().getSimpleName();LOG.error("[pxc-teams] NOT READY: {}. No team mutations are exposed.",problem);}
+            try{core=new TeamsCore(server,settings);problem="";LOG.info("[pxc-teams] native 2.5.5+pxc.5 ready: {} chests-locked={}",core.status(),core.chests.undecodable());}
+            catch(Exception e){problem=e.getClass().getSimpleName();LOG.error("[pxc-teams] NOT READY: {}. No team mutations are exposed.",problem,e);}
         });
         ServerLifecycleEvents.SERVER_STOPPING.register(server->{TeamsCore current=core;core=null;if(current!=null)try{current.close();}catch(Exception e){LOG.error("[pxc-teams] stop reconciliation required: {}",e.getClass().getSimpleName());}});
         ServerTickEvents.END_SERVER_TICK.register(server->{TeamsCore current=core;if(current!=null)try{current.tick();}catch(Exception e){current.storageFailed(e);LOG.error("[pxc-teams] watchdog failed: {}",e.getClass().getSimpleName());}});

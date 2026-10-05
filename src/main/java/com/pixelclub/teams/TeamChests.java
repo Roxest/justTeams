@@ -26,22 +26,27 @@ public final class TeamChests {
     private final TeamsCore core;
     private final Map<Integer,Lease> leases=new HashMap<>();
     private final Set<Integer> frozenTeams=new HashSet<>();
+    /** Team chests whose stored items do not decode on this server's registries: only that chest is refused, the team keeps working. */
+    private final Set<Integer> undecodable=new HashSet<>();
     private final Set<UUID> frozenPlayers=new HashSet<>();
     private final Path wal;
     private static final class Lease {
         int team;UUID player;long generation;String original;boolean open=true,admin;String previousOp;ChestSessionContainer inventory;Menu menu;
     }
     public TeamChests(TeamsCore core){this.core=core;wal=core.settings.folder().resolve("chest-intents.jsonl");}
+    public Set<Integer> undecodable(){return Set.copyOf(undecodable);}
     public boolean quarantined(UUID player,int team){return frozenPlayers.contains(player)||team>0&&frozenTeams.contains(team);}
     public boolean actorQuarantined(UUID player){return frozenPlayers.contains(player);}
     public int openCount(){return leases.size();}
     public void validateConvertedDonor()throws Exception {
         restoreQuarantine();
+        undecodable.clear();
         for(Map<String,Object> row:core.store.rows("team_enderchest",null,null)) {
             String original=Objects.toString(row.get("inventory_data"),"");if(original.isEmpty())continue;
             int id=((Number)row.get("team_id")).intValue();Chest chest=core.store.chest(id).orElseThrow(()->new TeamsCore.Refusal("CHEST_CONVERSION_MISSING"));
             if(!sha(original).equals(chest.originalSha256()))throw new TeamsCore.Refusal("CHEST_DONOR_HASH_CHANGED");
-            NativeChestCodec.decode(chest.inventoryJson(),core.server.registryAccess());
+            try{NativeChestCodec.decode(chest.inventoryJson(),core.server.registryAccess());}
+            catch(RuntimeException e){undecodable.add(id);TeamsMod.LOG.error("[pxc-teams] team {} chest does not decode here - chest locked, team usable: {}",id,e.toString());}
         }
     }
     public void open(ServerPlayer player)throws Exception {
@@ -54,6 +59,7 @@ public final class TeamChests {
     private void adminAccess(ServerPlayer player){if(!core.ready()||!TeamsCore.authenticated(player)||!Access.admin(player.createCommandSourceStack())||!Access.node(player,"justteams.admin.enderchest",false))throw new TeamsCore.Refusal("DENIED");}
     private void openFor(ServerPlayer player,Team team,boolean admin)throws Exception{
         if(quarantined(player.getUUID(),team.id()))throw new TeamsCore.Refusal("CHEST_RECOVERY_REQUIRED");
+        if(undecodable.contains(team.id()))throw new TeamsCore.Refusal("CHEST_RECOVERY_REQUIRED");
         if(!core.settings.bool("team_enderchest.enabled",true))throw new TeamsCore.Refusal("CHEST_DISABLED");
         if(core.store.isFrozen(team.id(),player.getUUID()))throw new TeamsCore.Refusal("CHEST_RECOVERY_REQUIRED");
         if(leases.containsKey(team.id()))throw new TeamsCore.Refusal("CHEST_IN_USE");
