@@ -19,7 +19,7 @@ public final class Settings {
         for (String name : List.of("config.yml", "messages.yml", "gui.yml", "quests.yml", "placeholders.yml", "commands.yml")) {
             Path target = folder.resolve(name);
             if (!Files.exists(target)) {
-                try (InputStream in = Settings.class.getClassLoader().getResourceAsStream(name)) {
+                try (InputStream in = OwnResource.open(name)) {
                     if (in == null) throw new IOException("missing bundled " + name);
                     Files.copy(in, target);
                 }
