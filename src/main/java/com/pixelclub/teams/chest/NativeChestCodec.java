@@ -65,7 +65,15 @@ public final class NativeChestCodec {
         return json;
     }
 
+    /** Slots AdvancedEnchantments rewrote from its legacy Bukkit form while they were decoded (see {@link #aeCanonicalized}). */
+    public record Report(List<ItemStack> stacks, List<Integer> aeCanonicalized) {}
+
     public static List<ItemStack> decode(String json, RegistryAccess registries) {
+        return decodeReport(json, registries).stacks();
+    }
+
+    public static Report decodeReport(String json, RegistryAccess registries) {
+        List<Integer> canonicalized = new ArrayList<>();
         JsonElement parsed = parseStrict(json);
         if (!parsed.isJsonObject()) throw invalid("inventory must be an object");
         JsonObject body = parsed.getAsJsonObject();
@@ -111,6 +119,11 @@ public final class NativeChestCodec {
             // Compare JSON documents, not Gson's in-memory Float vs BigDecimal number wrappers.
             // Float.toString(1.05f) is "1.05", while Float.doubleValue differs from parsed JSON 1.05.
             JsonElement roundtrip = parseStrict(GSON.toJson(encodeItem(stack, ops, slot)));
+            if (!encoded.equals(roundtrip) && aeCanonicalized(record, roundtrip.getAsJsonObject(), jsonCheck, stack)) {
+                canonicalized.add(slot);
+                decoded.add(stack);
+                continue;
+            }
             if (!encoded.equals(roundtrip)) {
                 JsonObject beforeComponents = record.getAsJsonObject("item").getAsJsonObject("components");
                 JsonObject afterComponents = roundtrip.getAsJsonObject().getAsJsonObject("item").getAsJsonObject("components");
@@ -125,7 +138,24 @@ public final class NativeChestCodec {
             }
             decoded.add(stack);
         }
-        return decoded;
+        return new Report(decoded, List.copyOf(canonicalized));
+    }
+
+    /**
+     * Pure Fabric: the AdvancedEnchantments port rewrites a legacy Bukkit AE item (PublicBukkitValues
+     * advancedenchantments:*) into its canonical AdvancedEnchantments state whenever an ItemStack is built,
+     * the same intake every player inventory goes through. The round trip then differs by design.
+     * Accepted only when the stored record carried legacy AE keys, the result carries AE's canonical state,
+     * the item and count are unchanged, and the JSON and typed-NBT decodes still agree on every component.
+     */
+    static boolean aeCanonicalized(JsonObject record, JsonObject roundtrip, ItemStack fromJson, ItemStack fromNbt) {
+        String before = record.get("nbt").getAsString();
+        JsonElement after = roundtrip.get("nbt");
+        if (!before.contains("PublicBukkitValues") || !before.contains("advancedenchantments:")) return false;
+        if (after == null || !after.isJsonPrimitive() || !after.getAsString().contains("AdvancedEnchantments")) return false;
+        JsonObject stored = record.getAsJsonObject("item"), rebuilt = roundtrip.getAsJsonObject("item");
+        if (!Objects.equals(stored.get("id"), rebuilt.get("id")) || !Objects.equals(stored.get("count"), rebuilt.get("count"))) return false;
+        return fromJson.getCount() == fromNbt.getCount() && ItemStack.isSameItemSameComponents(fromJson, fromNbt);
     }
 
     public static void validateSize(int size) {

@@ -45,7 +45,7 @@ public final class TeamChests {
             String original=Objects.toString(row.get("inventory_data"),"");if(original.isEmpty())continue;
             int id=((Number)row.get("team_id")).intValue();Chest chest=core.store.chest(id).orElseThrow(()->new TeamsCore.Refusal("CHEST_CONVERSION_MISSING"));
             if(!sha(original).equals(chest.originalSha256()))throw new TeamsCore.Refusal("CHEST_DONOR_HASH_CHANGED");
-            try{NativeChestCodec.decode(chest.inventoryJson(),core.server.registryAccess());}
+            try{var report=NativeChestCodec.decodeReport(chest.inventoryJson(),core.server.registryAccess());if(!report.aeCanonicalized().isEmpty())TeamsMod.LOG.info("[pxc-teams] team {} chest: legacy AE item(s) in slot(s) {} canonicalized by AdvancedEnchantments, saved in that form on next close",id,report.aeCanonicalized());}
             catch(RuntimeException e){undecodable.add(id);TeamsMod.LOG.error("[pxc-teams] team {} chest does not decode here - chest locked, team usable: {}",id,e.toString());}
         }
     }

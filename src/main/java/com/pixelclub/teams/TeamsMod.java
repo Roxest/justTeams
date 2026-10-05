@@ -17,6 +17,8 @@ public final class TeamsMod implements ModInitializer {
     private static volatile String problem="starting";
     public static TeamsCore core(){return core;}
     public static String problem(){return problem;}
+    /** The ready line names the jar that booted, so a postboot check cannot pass on a stale string. */
+    static String version(){return FabricLoader.getInstance().getModContainer("justteams").map(c->c.getMetadata().getVersion().getFriendlyString()).orElse("unknown");}
     public static boolean bukkitApiPresent(){try{Class.forName("org.bukkit.Bukkit",false,TeamsMod.class.getClassLoader());return true;}catch(ClassNotFoundException e){return false;}}
     public static boolean bukkitServer(){try{return Class.forName("org.bukkit.Bukkit").getMethod("getServer").invoke(null)!=null;}catch(ClassNotFoundException e){return false;}catch(ReflectiveOperationException e){return true;}}
     public static boolean legacyEnabled(){
@@ -29,7 +31,7 @@ public final class TeamsMod implements ModInitializer {
         ServerLifecycleEvents.SERVER_STARTED.register(server->{
             if(legacyEnabled()){problem="BukkitJustTeamsEnabled";LOG.info("[pxc-teams] DORMANT: Bukkit JustTeams is enabled");return;}
             if(bukkitApiPresent()){TeamCommands.register(server.getCommands().getDispatcher(),settings);LOG.info("[pxc-teams] command labels: {} | {}",TeamCommands.releaseBukkitTeamLabel(server.getCommands(),server.getCommands().getDispatcher()),TeamCommands.bukkitOwners());}
-            try{core=new TeamsCore(server,settings);problem="";LOG.info("[pxc-teams] native 2.5.5+pxc.5 ready: {} chests-locked={}",core.status(),core.chests.undecodable());}
+            try{core=new TeamsCore(server,settings);problem="";LOG.info("[pxc-teams] native {} ready: {} chests-locked={}",version(),core.status(),core.chests.undecodable());}
             catch(Exception e){problem=e.getClass().getSimpleName();LOG.error("[pxc-teams] NOT READY: {}. No team mutations are exposed.",problem,e);}
         });
         ServerLifecycleEvents.SERVER_STOPPING.register(server->{TeamsCore current=core;core=null;if(current!=null)try{current.close();}catch(Exception e){LOG.error("[pxc-teams] stop reconciliation required: {}",e.getClass().getSimpleName());}});

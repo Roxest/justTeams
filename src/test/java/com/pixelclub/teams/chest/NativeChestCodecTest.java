@@ -168,6 +168,59 @@ class NativeChestCodecTest {
         return result;
     }
 
+    private static JsonObject slotRecord(ItemStack stack) {
+        List<ItemStack> one = new ArrayList<>(Collections.nCopies(9, ItemStack.EMPTY));
+        one.set(0, stack);
+        return com.google.gson.JsonParser.parseString(NativeChestCodec.encode(one, registries)).getAsJsonObject()
+                .getAsJsonArray("slots").get(0).getAsJsonObject();
+    }
+
+    private static ItemStack book(CompoundTag custom, int count) {
+        ItemStack stack = new ItemStack(Items.BOOK, count);
+        stack.set(DataComponents.CUSTOM_DATA, CustomData.of(custom));
+        return stack;
+    }
+
+    private static CompoundTag legacyAe() {
+        CompoundTag pdc = new CompoundTag();
+        pdc.putString("advancedenchantments:ae_book", "iceaspect");
+        pdc.putInt("advancedenchantments:ae_book_level", 1);
+        CompoundTag root = new CompoundTag();
+        root.put("PublicBukkitValues", pdc);
+        return root;
+    }
+
+    private static CompoundTag canonicalAe() {
+        CompoundTag state = new CompoundTag();
+        state.putString("Book", "iceaspect");
+        state.putInt("Level", 1);
+        CompoundTag root = new CompoundTag();
+        root.put("AdvancedEnchantments", state);
+        return root;
+    }
+
+    @Test
+    void acceptsOnlyAdvancedEnchantmentsCanonicalizingALegacyBook() {
+        JsonObject stored = slotRecord(book(legacyAe(), 1));
+        ItemStack canonical = book(canonicalAe(), 1);
+        JsonObject rebuilt = slotRecord(canonical);
+        assertTrue(NativeChestCodec.aeCanonicalized(stored, rebuilt, canonical.copy(), canonical));
+        // not a legacy AE item: a plain custom_data drift stays a loss
+        CompoundTag other = new CompoundTag();
+        other.putString("opaque", "x");
+        assertFalse(NativeChestCodec.aeCanonicalized(slotRecord(book(other, 1)), rebuilt, canonical.copy(), canonical));
+        // AE did not produce its canonical state
+        assertFalse(NativeChestCodec.aeCanonicalized(stored, slotRecord(book(new CompoundTag(), 1)), canonical.copy(), canonical));
+        // count or item changed
+        ItemStack two = book(canonicalAe(), 2);
+        assertFalse(NativeChestCodec.aeCanonicalized(stored, slotRecord(two), two.copy(), two));
+        ItemStack paper = new ItemStack(Items.PAPER);
+        paper.set(DataComponents.CUSTOM_DATA, CustomData.of(canonicalAe()));
+        assertFalse(NativeChestCodec.aeCanonicalized(stored, slotRecord(paper), paper.copy(), paper));
+        // JSON and typed-NBT decodes disagree
+        assertFalse(NativeChestCodec.aeCanonicalized(stored, rebuilt, book(legacyAe(), 1), canonical));
+    }
+
     private static void sign(JsonObject document) {
         document.remove("sha256");
         document.addProperty("sha256", NativeChestCodec.semanticSha256(document));
