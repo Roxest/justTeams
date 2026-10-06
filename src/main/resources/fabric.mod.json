@@ -9,7 +9,7 @@
   "environment": "server",
   "entrypoints": {"main": ["com.pixelclub.teams.TeamsMod"]},
   "mixins": ["pxc-teams.mixins.json"],
-  "suggests": {"pxc-placeholders": ">=0.1.4"},
+  "suggests": {"pxc-placeholders": ">=0.1.4", "fabrictailor": "*"},
   "depends": {
     "fabricloader": ">=0.16.0",
     "minecraft": "~1.21.1",
