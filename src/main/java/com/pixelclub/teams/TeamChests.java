@@ -32,11 +32,12 @@ public final class TeamChests {
     private static final class Lease {
         int team;UUID player;long generation;String original;boolean open=true,admin;String previousOp;ChestSessionContainer inventory;Menu menu;
     }
-    public TeamChests(TeamsCore core){this.core=core;journal=new ChestJournal(core.settings.folder().resolve("chest-intents.jsonl"));}
+    public TeamChests(TeamsCore core){this.core=core;journal=new ChestJournal(core.settings.folder().resolve("chest-intents.jsonl"),(long)core.settings.number("pxc.chest_journal.compact_after_bytes",ChestJournal.DEFAULT_COMPACT_AFTER_BYTES));}
     public Set<Integer> undecodable(){return Set.copyOf(undecodable);}
     public boolean quarantined(UUID player,int team){return frozenPlayers.contains(player)||team>0&&frozenTeams.contains(team);}
     public boolean actorQuarantined(UUID player){return frozenPlayers.contains(player);}
     public int openCount(){return leases.size();}
+    public long journalBytes(){return journal.bytes();}
     public void validateConvertedDonor()throws Exception {
         restoreQuarantine();
         undecodable.clear();

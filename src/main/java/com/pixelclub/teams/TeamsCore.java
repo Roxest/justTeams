@@ -348,9 +348,9 @@ public final class TeamsCore implements AutoCloseable {
     /** pxc.9: the pending count is a MySQL SELECT (850 ms once on PRD 2026-10-07, a whole tick); it now runs on its own thread. pendingOperations opens its own connection and takes no lock. */
     private static final java.util.concurrent.ExecutorService WATCHDOG=java.util.concurrent.Executors.newSingleThreadExecutor(r->{Thread t=new Thread(r,"pxc-teams-watchdog");t.setDaemon(true);return t;});
     private void watchdog(){
-        boolean r=ready;int open=chests.openCount();boolean provider=bank.available();
+        boolean r=ready;int open=chests.openCount();boolean provider=bank.available();long journal=chests.journalBytes();
         WATCHDOG.execute(()->{String pending;try{pending=String.valueOf(store.pendingOperations().size());}catch(Exception e){pending="error "+e;}
-            TeamsMod.LOG.info("[pxc-teams] watchdog ready={} pending={} open-chests={} provider={}",r,pending,open,provider);});
+            TeamsMod.LOG.info("[pxc-teams] watchdog ready={} pending={} open-chests={} provider={} chest-journal={}",r,pending,open,provider,journal);});
     }
     private void glowTick()throws Exception{
         var flags=EntityFlagsAccess.pxcTeams$flags();boolean ownOnly=settings.bool("settings.glow.only_show_own_team",true);
