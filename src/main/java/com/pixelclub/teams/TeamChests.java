@@ -15,7 +15,6 @@ import net.minecraft.world.inventory.*;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.storage.LevelResource;
 import java.nio.channels.FileChannel;
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.security.MessageDigest;
@@ -29,11 +28,11 @@ public final class TeamChests {
     /** Team chests whose stored items do not decode on this server's registries: only that chest is refused, the team keeps working. */
     private final Set<Integer> undecodable=new HashSet<>();
     private final Set<UUID> frozenPlayers=new HashSet<>();
-    private final Path wal;
+    private final ChestJournal journal;
     private static final class Lease {
         int team;UUID player;long generation;String original;boolean open=true,admin;String previousOp;ChestSessionContainer inventory;Menu menu;
     }
-    public TeamChests(TeamsCore core){this.core=core;wal=core.settings.folder().resolve("chest-intents.jsonl");}
+    public TeamChests(TeamsCore core){this.core=core;journal=new ChestJournal(core.settings.folder().resolve("chest-intents.jsonl"));}
     public Set<Integer> undecodable(){return Set.copyOf(undecodable);}
     public boolean quarantined(UUID player,int team){return frozenPlayers.contains(player)||team>0&&frozenTeams.contains(team);}
     public boolean actorQuarantined(UUID player){return frozenPlayers.contains(player);}
@@ -189,10 +188,7 @@ public final class TeamChests {
     }
     private void restore(ServerPlayer player,Lease lease,List<ItemStack> chest,ListTag inventory,ItemStack cursor){for(int i=0;i<chest.size();i++)lease.inventory.getItems().set(i,chest.get(i).copy());player.getInventory().load(inventory);lease.menu.setCarried(cursor.copy());lease.menu.broadcastFullState();}
     private String cursor(ItemStack item){List<ItemStack> holder=new ArrayList<>(Collections.nCopies(9,ItemStack.EMPTY));holder.set(0,item.copy());return NativeChestCodec.encode(holder,core.server.registryAccess());}
-    private void append(String op,int team,UUID player,String phase,JsonObject payload)throws Exception {
-        Files.createDirectories(wal.toAbsolutePath().getParent());JsonObject record=new JsonObject();record.addProperty("opid",op);record.addProperty("team",team);record.addProperty("player",player.toString());record.addProperty("phase",phase);record.addProperty("at",System.currentTimeMillis());record.add("payload",payload.deepCopy());
-        ByteBuffer bytes=ByteBuffer.wrap((record+System.lineSeparator()).getBytes(StandardCharsets.UTF_8));try(FileChannel channel=FileChannel.open(wal,StandardOpenOption.CREATE,StandardOpenOption.WRITE,StandardOpenOption.APPEND)){while(bytes.hasRemaining())channel.write(bytes);channel.force(true);}
-    }
+    private void append(String op,int team,UUID player,String phase,JsonObject payload)throws Exception {journal.append(op,team,player,phase,payload);}
     private void quarantine(ServerPlayer player,Lease lease,int team,String op,JsonObject payload,Exception error) {
         // This state transition is unconditional: neither a failed SQL lookup nor a failed journal write can bypass it.
         if(team>0)frozenTeams.add(team);frozenPlayers.add(player.getUUID());
@@ -265,20 +261,12 @@ public final class TeamChests {
     private static ListTag listTag(String snbt)throws Exception {
         Tag tag=new TagParser(new com.mojang.brigadier.StringReader(snbt)).readValue();if(!(tag instanceof ListTag list))throw new TeamsCore.Refusal("RECOVERY_INVENTORY_INVALID");return list;
     }
-    private JsonObject latestJournal(String opid)throws Exception {
-        if(!Files.exists(wal))return null;JsonObject latest=null;
-        try(var reader=Files.newBufferedReader(wal,StandardCharsets.UTF_8)){String line;while((line=reader.readLine())!=null){if(line.isBlank())continue;JsonObject record=JsonParser.parseString(line).getAsJsonObject();if(record.has("opid")&&record.get("opid").getAsString().equals(opid))latest=record;}}
-        return latest;
-    }
+    private JsonObject latestJournal(String opid)throws Exception {return journal.latestRecord(opid);}
     private void frozenFromJournal(Set<UUID> players,Set<Integer> teams)throws Exception {
-        if(!Files.exists(wal))return;Map<String,JsonObject> latest=new LinkedHashMap<>();
-        try(var reader=Files.newBufferedReader(wal,StandardCharsets.UTF_8)){String line;while((line=reader.readLine())!=null){if(line.isBlank())continue;JsonObject record=JsonParser.parseString(line).getAsJsonObject();latest.put(record.get("opid").getAsString(),record);}}
-        for(JsonObject record:latest.values())if(!Set.of("DONE","CANCELLED","ESCROW").contains(record.get("phase").getAsString())){players.add(UUID.fromString(record.get("player").getAsString()));int team=record.get("team").getAsInt();if(team>0)teams.add(team);}
+        for(JsonObject record:journal.latestRecords())if(!Set.of("DONE","CANCELLED","ESCROW").contains(record.get("phase").getAsString())){players.add(UUID.fromString(record.get("player").getAsString()));int team=record.get("team").getAsInt();if(team>0)teams.add(team);}
     }
     private void restoreQuarantine()throws Exception {
-        if(!Files.exists(wal))return;Map<String,JsonObject> latest=new LinkedHashMap<>();
-        try(var reader=Files.newBufferedReader(wal,StandardCharsets.UTF_8)){String line;while((line=reader.readLine())!=null){if(line.isBlank())continue;JsonObject record=JsonParser.parseString(line).getAsJsonObject(),head=new JsonObject();for(String key:List.of("opid","player","team","phase")){if(!record.has(key)||record.get(key).isJsonNull())throw new TeamsCore.Refusal("CHEST_JOURNAL_INVALID");head.add(key,record.get(key));}String op=head.get("opid").getAsString();JsonObject previous=latest.get(op);if(previous!=null&&(!previous.get("player").equals(head.get("player"))||!previous.get("team").equals(head.get("team"))))throw new TeamsCore.Refusal("CHEST_JOURNAL_IDENTITY_CHANGED");latest.put(op,head);}}
-        for(JsonObject record:latest.values()){String phase=record.get("phase").getAsString();if(!Set.of("DONE","CANCELLED","ESCROW").contains(phase)){UUID actor=UUID.fromString(record.get("player").getAsString());int team=record.get("team").getAsInt();frozenPlayers.add(actor);if(team>0)frozenTeams.add(team);}}
+        for(ChestJournal.Head head:journal.load().values()){String phase=head.phase().getAsString();if(!Set.of("DONE","CANCELLED","ESCROW").contains(phase)){UUID actor=UUID.fromString(head.player().getAsString());int team=head.team().getAsInt();frozenPlayers.add(actor);if(team>0)frozenTeams.add(team);}}
     }
     private static String sha(String input)throws Exception{return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(input.getBytes(StandardCharsets.UTF_8)));}
     private static MenuType<?> type(int rows){return switch(rows){case 1->MenuType.GENERIC_9x1;case 2->MenuType.GENERIC_9x2;case 3->MenuType.GENERIC_9x3;case 4->MenuType.GENERIC_9x4;case 5->MenuType.GENERIC_9x5;default->MenuType.GENERIC_9x6;};}
