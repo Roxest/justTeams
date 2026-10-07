@@ -1,6 +1,7 @@
 package com.pixelclub.teams.store;
 
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -78,7 +79,24 @@ public final class TeamStore {
         try (Connection connection = factory.open(); Statement statement = connection.createStatement()) {
             statement.execute("CREATE TABLE IF NOT EXISTS " + OPERATIONS + " (opid VARCHAR(192) PRIMARY KEY, team_id INT NOT NULL, player_uuid VARCHAR(36), kind VARCHAR(64) NOT NULL, amount DOUBLE NOT NULL, phase VARCHAR(32) NOT NULL, payload LONGTEXT NOT NULL, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL)");
             statement.execute("CREATE TABLE IF NOT EXISTS " + CHESTS + " (team_id INT PRIMARY KEY, format_version INT NOT NULL, inventory_json LONGTEXT NOT NULL, original_sha256 VARCHAR(64), generation BIGINT NOT NULL, updated_at BIGINT NOT NULL, FOREIGN KEY(team_id) REFERENCES " + table("teams") + "(id) ON DELETE CASCADE)");
+            // pxc.11: pending, frozen and unsettled-money reads select by phase; settled rows are nearly the whole table and keep growing.
+            // Two backends may boot together: the loser of the CREATE race accepts the winner's index.
+            if (!hasLeadingIndex(connection, OPERATIONS, "phase")) {
+                try { statement.execute("CREATE INDEX " + OPERATIONS + "_phase ON " + OPERATIONS + " (phase)"); }
+                catch (SQLException raced) { if (!hasLeadingIndex(connection, OPERATIONS, "phase")) throw raced; }
+            }
         }
+    }
+
+    private static boolean hasLeadingIndex(Connection connection, String table, String column) throws SQLException {
+        DatabaseMetaData metadata = connection.getMetaData();
+        // MySQL keeps the name as written, H2 upper-cases unquoted names; the catalog keeps another database's same-named table out.
+        for (String name : List.of(table, table.toUpperCase(Locale.ROOT))) {
+            try (ResultSet indexes = metadata.getIndexInfo(connection.getCatalog(), null, name, false, false)) {
+                while (indexes.next()) if (column.equalsIgnoreCase(indexes.getString("COLUMN_NAME")) && indexes.getShort("ORDINAL_POSITION") == 1) return true;
+            }
+        }
+        return false;
     }
 
     /** Creates donor templates only in H2 in-memory fixtures, never a production/import database. */
@@ -603,7 +621,10 @@ public final class TeamStore {
     }
     public List<Operation> pendingOperations() throws SQLException {
         try (Connection connection = factory.open()) {
-            return query(connection, "SELECT * FROM " + OPERATIONS + " WHERE kind<>? AND kind<>? ORDER BY created_at,opid", "INVITE", "IDENTITY").stream().map(TeamStore::operationRow).filter(operation -> !TERMINAL_PHASES.contains(operation.phase())).toList();
+            // pxc.11: terminal rows stay behind in SQL (PRD 2026-10-07: 2,253 rows / 111.7 MB, 850 ms); the phase index skips them. The Java filter stays exact.
+            List<Object> parameters = new ArrayList<>(List.of("INVITE", "IDENTITY"));
+            parameters.addAll(TERMINAL_PHASES);
+            return query(connection, "SELECT * FROM " + OPERATIONS + " WHERE kind<>? AND kind<>? AND phase NOT IN (" + placeholders(TERMINAL_PHASES.size()) + ") ORDER BY created_at,opid", parameters.toArray()).stream().map(TeamStore::operationRow).filter(operation -> !TERMINAL_PHASES.contains(operation.phase())).toList();
         }
     }
     public boolean isFrozen(int teamId, UUID player) throws SQLException {
@@ -725,8 +746,14 @@ public final class TeamStore {
         return first(connection, "SELECT opid FROM " + OPERATIONS + " WHERE ((team_id=? AND team_id>0) OR player_uuid=?) AND phase IN (?,?) AND kind<>?", teamId, player, "FROZEN", "UNCERTAIN", "INVITE").isPresent();
     }
     private boolean hasUnsettledFinancialOperation(Connection connection, int teamId, UUID player) throws SQLException {
-        return query(connection, "SELECT kind,phase FROM " + OPERATIONS + " WHERE (team_id=? AND team_id>0) OR player_uuid=?", teamId, player).stream()
+        List<Object> parameters = new ArrayList<>(List.of(teamId, player));
+        parameters.addAll(FINANCIAL_KINDS);
+        parameters.addAll(FINANCIAL_TERMINAL_PHASES);
+        return query(connection, "SELECT kind,phase FROM " + OPERATIONS + " WHERE ((team_id=? AND team_id>0) OR player_uuid=?) AND kind IN (" + placeholders(FINANCIAL_KINDS.size()) + ") AND phase NOT IN (" + placeholders(FINANCIAL_TERMINAL_PHASES.size()) + ")", parameters.toArray()).stream()
                 .anyMatch(row -> FINANCIAL_KINDS.contains(RowData.text(row.get("kind"))) && !FINANCIAL_TERMINAL_PHASES.contains(RowData.text(row.get("phase"))));
+    }
+    private static String placeholders(int count) {
+        return String.join(",", Collections.nCopies(count, "?"));
     }
     private Optional<Chest> chest(Connection connection, int teamId, boolean lock) throws SQLException {
         return first(connection, "SELECT * FROM " + CHESTS + " WHERE team_id=?" + (lock ? " FOR UPDATE" : ""), teamId).map(row -> new Chest(RowData.integer(row.get("team_id")), RowData.integer(row.get("format_version")), RowData.text(row.get("inventory_json")), RowData.text(row.get("original_sha256")), ((Number) row.get("generation")).longValue(), ((Number) row.get("updated_at")).longValue()));
