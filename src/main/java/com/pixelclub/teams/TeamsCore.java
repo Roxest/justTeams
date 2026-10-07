@@ -343,7 +343,14 @@ public final class TeamsCore implements AutoCloseable {
         chests.tick();
         if(ticks%Math.max(1,settings.integer("settings.glow.check_interval",20))==0)glowTick();
         if(ticks%200==0)snapshots.refreshAll();
-        if(ticks%12000==0)TeamsMod.LOG.info("[pxc-teams] watchdog ready={} pending={} open-chests={} provider={}",ready,store.pendingOperations().size(),chests.openCount(),bank.available());
+        if(ticks%12000==0)watchdog();
+    }
+    /** pxc.9: the pending count is a MySQL SELECT (850 ms once on PRD 2026-10-07, a whole tick); it now runs on its own thread. pendingOperations opens its own connection and takes no lock. */
+    private static final java.util.concurrent.ExecutorService WATCHDOG=java.util.concurrent.Executors.newSingleThreadExecutor(r->{Thread t=new Thread(r,"pxc-teams-watchdog");t.setDaemon(true);return t;});
+    private void watchdog(){
+        boolean r=ready;int open=chests.openCount();boolean provider=bank.available();
+        WATCHDOG.execute(()->{String pending;try{pending=String.valueOf(store.pendingOperations().size());}catch(Exception e){pending="error "+e;}
+            TeamsMod.LOG.info("[pxc-teams] watchdog ready={} pending={} open-chests={} provider={}",r,pending,open,provider);});
     }
     private void glowTick()throws Exception{
         var flags=EntityFlagsAccess.pxcTeams$flags();boolean ownOnly=settings.bool("settings.glow.only_show_own_team",true);
