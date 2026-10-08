@@ -302,8 +302,10 @@ public final class TeamsCore implements AutoCloseable {
         Map<String,String> plain=Map.of("team_name",team.name(),"team_tag",team.tag(),"player",player.getGameProfile().getName(),"message",message);
         String prefix=Access.meta(player,true),suffix=Access.meta(player,false);Map<String,String> trusted=Map.of("prefix",prefix,"player_prefix",prefix,"suffix",suffix,"player_suffix",suffix);
         Set<UUID> members=new HashSet<>();for(Member member:store.members(team.id()))members.add(member.uuid());
-        Component component=Texts.template(format,plain,trusted);for(ServerPlayer recipient:server.getPlayerList().getPlayers())if(authenticated(recipient)&&(members.contains(recipient.getUUID())||includeSpies&&spies.contains(recipient.getUUID())&&Access.node(recipient,"justteams.chatspy",false)))recipient.sendSystemMessage(component);
+        Component component=Texts.template(format,plain,trusted);Component asMember=chatTag(component,"team"),asSpy=chatTag(component,"spy");for(ServerPlayer recipient:server.getPlayerList().getPlayers())if(authenticated(recipient)){if(members.contains(recipient.getUUID()))recipient.sendSystemMessage(asMember);else if(includeSpies&&spies.contains(recipient.getUUID())&&Access.node(recipient,"justteams.chatspy",false))recipient.sendSystemMessage(asSpy);}
     }
+    /** pxc.7+chat: invisible chat-tab marker (font pixelclub:chattag/<category>) read by the Pixelclub client. */
+    private static Component chatTag(Component line,String category){return line.copy().append(Component.literal("").withStyle(net.minecraft.network.chat.Style.EMPTY.withFont(net.minecraft.resources.ResourceLocation.fromNamespaceAndPath("pixelclub","chattag/"+category))));}
     public synchronized void toggleChat(ServerPlayer player)throws Exception{check(player,"chat");requireTeam(player);if(!chatMode.remove(player.getUUID()))chatMode.add(player.getUUID());success(player,"&aCHAT="+chatMode.contains(player.getUUID()));}
     public synchronized void toggleSpy(ServerPlayer player)throws Exception{check(player,"chatspy");if(!Access.node(player,"justteams.chatspy",false))throw new Refusal("DENIED");if(!spies.remove(player.getUUID()))spies.add(player.getUUID());success(player,"&aCHATSPY="+spies.contains(player.getUUID()));}
     public Decision damagePolicy(UUID attacker,UUID victim){
