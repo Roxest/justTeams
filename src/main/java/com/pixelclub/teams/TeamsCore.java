@@ -35,6 +35,8 @@ public final class TeamsCore implements AutoCloseable {
     public final TeamChests chests;
     private final TeamDataSource data;
     private final Set<UUID> chatMode=new HashSet<>(),spies=new HashSet<>();
+    /** X4 team chat across backends; null = off (x4.team_chat unset). */
+    private X4TeamChat x4chat;
     private final Map<UUID,Prompt> prompts=new HashMap<>();
     private final Map<UUID,Warmup> warmups=new HashMap<>();
     private final Map<String,Long> cooldowns=new HashMap<>();
@@ -58,6 +60,7 @@ public final class TeamsCore implements AutoCloseable {
         snapshots=new TeamSnapshots(store);
         bank=new BankService(store,new PackEconomy(FabricLoader.getInstance().getGameDir()),settings.folder().resolve("bank-intents.jsonl"),settings.number("team_bank.max_balance",-1));
         menus=new TeamMenus(this);chests=new TeamChests(this);
+        if(settings.bool("x4.team_chat",false)){x4chat=new X4TeamChat(server,data,settings.first("donut_","storage.table_prefix","storage.mysql.table_prefix","storage.prefix"),serverName());x4chat.start();}
         for(Operation pending:store.pendingOperationsOwnedHere())if(!(pending.kind().equals("CHEST")&&pending.phase().equals("ESCROW")))store.freezeOperation(pending.opid(),"RESTART_PENDING_"+pending.phase());
         chests.validateConvertedDonor();
         snapshots.refreshAll();
@@ -311,6 +314,7 @@ public final class TeamsCore implements AutoCloseable {
         String prefix=Access.meta(player,true),suffix=Access.meta(player,false);Map<String,String> trusted=Map.of("prefix",prefix,"player_prefix",prefix,"suffix",suffix,"player_suffix",suffix);
         Set<UUID> members=new HashSet<>();for(Member member:store.members(team.id()))members.add(member.uuid());
         Component component=Texts.template(format,plain,trusted);Component asMember=chatTag(component,"team"),asSpy=chatTag(component,"spy");for(ServerPlayer recipient:server.getPlayerList().getPlayers())if(authenticated(recipient)){if(members.contains(recipient.getUUID()))recipient.sendSystemMessage(asMember);else if(includeSpies&&spies.contains(recipient.getUUID())&&Access.node(recipient,"justteams.chatspy",false))recipient.sendSystemMessage(asSpy);}
+        if(x4chat!=null)x4chat.publish(team.id(),asMember,includeSpies?asSpy:null);
     }
     /** pxc.7+chat: invisible chat-tab marker (font pixelclub:chattag/<category>) read by the Pixelclub client. */
     private static Component chatTag(Component line,String category){return line.copy().append(Component.literal("").withStyle(net.minecraft.network.chat.Style.EMPTY.withFont(net.minecraft.resources.ResourceLocation.fromNamespaceAndPath("pixelclub","chattag/"+category))));}
@@ -366,6 +370,7 @@ public final class TeamsCore implements AutoCloseable {
             if(ticks>=warm.at()){iterator.remove();try{check(player,warm.kind());if(warm.kind().equals("home"))flag(player,"can_use_home","home");player.teleportTo(warm.target(),warm.x(),warm.y(),warm.z(),warm.yaw(),warm.pitch());cooldowns.put(warm.kind()+":"+player.getUUID(),now+settings.integer(warm.kind().equals("home")?"team_home.cooldown_seconds":"team_warps.cooldown_seconds",5)*1000L);say(player,warm.kind().equals("home")?"TELEPORTED_HOME":"TELEPORTED_WARP",Map.of("warp",warm.name()),"&a");}catch(Exception e){refuse(player,e);}}
         }
         chests.tick();
+        if(x4chat!=null){if(ticks%20==0)x4chat.poll(store::members,TeamsCore::authenticated,p->spies.contains(p.getUUID())&&Access.node(p,"justteams.chatspy",false));if(ticks%6000==0)x4chat.prune();}
         if(ticks%Math.max(1,settings.integer("settings.glow.check_interval",20))==0)glowTick();
         if(ticks%200==0)snapshots.refreshAll();
         if(ticks%12000==0)watchdog();
@@ -390,6 +395,6 @@ public final class TeamsCore implements AutoCloseable {
     private void registerPlaceholders(){if(FabricLoader.getInstance().isModLoaded("pxc-placeholders"))TeamPlaceholders.register(this);}
     public synchronized String status()throws Exception{return "ready="+ready+" snapshot-health="+snapshots.healthy()+" teams="+store.rows("teams",null,null).size()+" members="+store.rows("team_members",null,null).size()+" pending="+store.pendingOperations().size()+" chests="+chests.openCount()+" provider="+bank.available();}
     public synchronized void reload()throws Exception{for(ServerPlayer p:server.getPlayerList().getPlayers()){chests.close(p);p.closeContainer();}prompts.clear();warmups.clear();settings.load();bank.setCap(settings.number("team_bank.max_balance",-1));TeamCommands.register(server.getCommands().getDispatcher(),settings);store.validateSchema();chests.validateConvertedDonor();}
-    @Override public synchronized void close(){ready=false;for(ServerPlayer player:server.getPlayerList().getPlayers())chests.close(player);data.close();}
+    @Override public synchronized void close(){ready=false;if(x4chat!=null)x4chat.stop();for(ServerPlayer player:server.getPlayerList().getPlayers())chests.close(player);data.close();}
     private static Map<String,Object> nullable(String a,Object av,String b,Object bv){Map<String,Object> result=new HashMap<>();result.put(a,av);result.put(b,bv);return result;}
 }
