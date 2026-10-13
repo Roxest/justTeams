@@ -51,6 +51,8 @@ public final class PackEconomy implements DurableEconomy {
     }
     @Override public boolean flushConfirmed(UUID player,double expected) throws Exception {
         if(!hasAccount(player)||!same(balance(player),expected))return false;
+        // pxc-ledger writes no wallet file: its receipt is a committed MySQL read (see LedgerReceipt).
+        if(LedgerReceipt.active())return LedgerReceipt.confirmed(player,expected);
         Class<?> api=Class.forName("net.impactdev.impactor.api.economy.EconomyService");
         Class<?> accountApi=Class.forName("net.impactdev.impactor.api.economy.accounts.Account");
         Object impactor=api.getMethod("instance").invoke(null);

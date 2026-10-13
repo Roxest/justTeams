@@ -720,4 +720,35 @@ public class TeamStoreTest {
         @Override public void close() {}
         @Override public void remove() {}
     }
+
+    /** +xs1: two backends share one database. */
+    @Test void crossServerChestLeaseIsExclusiveAndExpires() throws Exception {
+        TeamStore one = new TeamStore(factory, "donut_"), two = new TeamStore(factory, "donut_");
+        one.serverName("xs1"); two.serverName("xs2"); one.provisionAdditiveTables(); two.provisionAdditiveTables();
+        UUID a = UUID.randomUUID(), b = UUID.randomUUID();
+        assertTrue(one.acquireChestLease(team.id(), a, 30_000));
+        assertFalse(two.acquireChestLease(team.id(), b, 30_000), "other backend must be refused while the lease is live");
+        assertTrue(one.acquireChestLease(team.id(), a, 30_000), "holder backend re-entry");
+        assertEquals(1, one.renewChestLeases(java.util.List.of(team.id()), 30_000));
+        assertEquals(0, two.renewChestLeases(java.util.List.of(team.id()), 30_000), "cannot renew another backend's lease");
+        two.releaseChestLease(team.id());
+        assertFalse(two.acquireChestLease(team.id(), b, 30_000), "release only removes own rows");
+        one.releaseChestLease(team.id());
+        assertTrue(two.acquireChestLease(team.id(), b, 1));
+        Thread.sleep(5);
+        assertTrue(one.acquireChestLease(team.id(), a, 30_000), "an expired lease (crashed backend) can be taken over");
+        assertEquals(1, one.releaseOwnChestLeases());
+    }
+
+    @Test void bootRecoveryOnlyClaimsOwnAndLegacyOperations() throws Exception {
+        TeamStore one = new TeamStore(factory, "donut_"), two = new TeamStore(factory, "donut_");
+        one.serverName("xs1"); two.serverName("xs2"); one.provisionAdditiveTables();
+        one.beginOperation("xs1-op-00000001", team.id(), owner, "DEPOSIT", 5, "PREPARED", "{}");
+        two.beginOperation("xs2-op-00000001", team.id(), owner, "DEPOSIT", 5, "PREPARED", "{}");
+        sql("UPDATE pxc_teams_operations SET server_name=NULL WHERE opid='xs2-op-00000001'");
+        two.beginOperation("xs2-op-00000002", team.id(), owner, "DEPOSIT", 5, "PREPARED", "{}");
+        var mine = two.pendingOperationsOwnedHere().stream().map(TeamStore.Operation::opid).toList();
+        assertEquals(java.util.List.of("xs2-op-00000001", "xs2-op-00000002"), mine.stream().sorted().toList(), "legacy NULL + own, never xs1's live op");
+        assertEquals(3, one.pendingOperations().size());
+    }
 }

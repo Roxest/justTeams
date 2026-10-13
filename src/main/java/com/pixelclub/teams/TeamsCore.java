@@ -51,12 +51,14 @@ public final class TeamsCore implements AutoCloseable {
         data=new TeamDataSource(settings);
         store=new TeamStore(data,settings.first("donut_","storage.table_prefix","storage.mysql.table_prefix","storage.prefix"));
         store.validateSchema();
+        store.serverName(serverName());
         // Additive tables only. A narrower replica database is never treated as a donor import.
         store.provisionAdditiveTables();
+        int staleLeases=store.releaseOwnChestLeases();if(staleLeases>0)TeamsMod.LOG.warn("[pxc-teams] released {} chest lease(s) left by this server's previous run",staleLeases);
         snapshots=new TeamSnapshots(store);
         bank=new BankService(store,new PackEconomy(FabricLoader.getInstance().getGameDir()),settings.folder().resolve("bank-intents.jsonl"),settings.number("team_bank.max_balance",-1));
         menus=new TeamMenus(this);chests=new TeamChests(this);
-        for(Operation pending:store.pendingOperations())if(!(pending.kind().equals("CHEST")&&pending.phase().equals("ESCROW")))store.freezeOperation(pending.opid(),"RESTART_PENDING_"+pending.phase());
+        for(Operation pending:store.pendingOperationsOwnedHere())if(!(pending.kind().equals("CHEST")&&pending.phase().equals("ESCROW")))store.freezeOperation(pending.opid(),"RESTART_PENDING_"+pending.phase());
         chests.validateConvertedDonor();
         snapshots.refreshAll();
         ready=true;

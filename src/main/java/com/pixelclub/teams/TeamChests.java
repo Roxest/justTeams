@@ -24,6 +24,9 @@ import java.util.*;
 public final class TeamChests {
     private final TeamsCore core;
     private final Map<Integer,Lease> leases=new HashMap<>();
+    /** +xs1: team ids whose cross-server lease row this backend holds (superset of leases.keySet() for at most one tick). */
+    private final Set<Integer> sharedLeases=new HashSet<>();
+    static final long SHARED_LEASE_TTL_MILLIS=30_000;private long sharedTicks;
     private final Set<Integer> frozenTeams=new HashSet<>();
     /** Team chests whose stored items do not decode on this server's registries: only that chest is refused, the team keeps working. */
     private final Set<Integer> undecodable=new HashSet<>();
@@ -63,6 +66,9 @@ public final class TeamChests {
         if(!core.settings.bool("team_enderchest.enabled",true))throw new TeamsCore.Refusal("CHEST_DISABLED");
         if(core.store.isFrozen(team.id(),player.getUUID()))throw new TeamsCore.Refusal("CHEST_RECOVERY_REQUIRED");
         if(leases.containsKey(team.id()))throw new TeamsCore.Refusal("CHEST_IN_USE");
+        // +xs1: another backend on the same database may have this team's chest open.
+        if(!core.store.acquireChestLease(team.id(),player.getUUID(),SHARED_LEASE_TTL_MILLIS))throw new TeamsCore.Refusal("CHEST_IN_USE");
+        sharedLeases.add(team.id());
         Chest record=core.store.chest(team.id()).orElse(null);List<ItemStack> items;String original=null;long generation=0;
         if(record!=null){items=new ArrayList<>(NativeChestCodec.decode(record.inventoryJson(),core.server.registryAccess()));original=record.originalSha256();generation=record.generation();}
         else {
@@ -180,7 +186,11 @@ public final class TeamChests {
     public void close(ServerPlayer player){Lease lease=leases.values().stream().filter(value->value.player.equals(player.getUUID())).findFirst().orElse(null);if(lease!=null){finish(player,lease);if(player.containerMenu==lease.menu)player.closeContainer();}}
     public void revoke(UUID player){ServerPlayer online=core.server.getPlayerList().getPlayer(player);if(online!=null)close(online);}
     public void revokeTeam(int team){Lease lease=leases.get(team);if(lease!=null)revoke(lease.player);}
-    public void tick()throws Exception {for(Lease lease:new ArrayList<>(leases.values())){ServerPlayer player=core.server.getPlayerList().getPlayer(lease.player);if(player==null){lease.open=false;lease.inventory.revoke();leases.remove(lease.team,lease);continue;}if(lease.admin){try{adminAccess(player);}catch(TeamsCore.Refusal e){close(player);}continue;}Optional<Member> member=core.store.member(lease.player);if(member.isEmpty()||member.get().teamId()!=lease.team||!member.get().flag("can_use_enderchest")&&!Access.bypass(player,"enderchest"))close(player);}}
+    public void tick()throws Exception {
+        // +xs1: release shared rows whose local lease ended (any path), renew the rest well inside the TTL.
+        for(Integer team:new ArrayList<>(sharedLeases))if(!leases.containsKey(team)){try{core.store.releaseChestLease(team);sharedLeases.remove(team);}catch(Exception e){TeamsMod.LOG.warn("[pxc-teams] chest lease release for team {} deferred: {}",team,e.toString());}}
+        if(++sharedTicks%100==0&&!sharedLeases.isEmpty())core.store.renewChestLeases(List.copyOf(sharedLeases),SHARED_LEASE_TTL_MILLIS);
+        for(Lease lease:new ArrayList<>(leases.values())){ServerPlayer player=core.server.getPlayerList().getPlayer(lease.player);if(player==null){lease.open=false;lease.inventory.revoke();leases.remove(lease.team,lease);continue;}if(lease.admin){try{adminAccess(player);}catch(TeamsCore.Refusal e){close(player);}continue;}Optional<Member> member=core.store.member(lease.player);if(member.isEmpty()||member.get().teamId()!=lease.team||!member.get().flag("can_use_enderchest")&&!Access.bypass(player,"enderchest"))close(player);}}
     private boolean savePlayerConfirmed(ServerPlayer player,ListTag expected)throws Exception {
         ((PlayerSaveAccess)core.server.getPlayerList()).pxcTeamsSave(player);
         Path root=core.server.getWorldPath(LevelResource.PLAYER_DATA_DIR).toAbsolutePath().normalize();Path target=root.resolve(player.getUUID()+".dat").normalize();if(!target.startsWith(root)||!Files.isRegularFile(target)||Files.isSymbolicLink(target))return false;

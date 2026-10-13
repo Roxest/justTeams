@@ -16,7 +16,7 @@ public final class TeamDataSource implements ConnectionFactory,AutoCloseable {
             if(!host.matches("[A-Za-z0-9.:-]+")||!database.matches("[A-Za-z0-9_]+"))throw new IllegalArgumentException("invalid database endpoint");
             int port=settings.integer("storage.mysql.port",3306);
             if(port<1||port>65535)throw new IllegalArgumentException("invalid database port");
-            pool.setJdbcUrl("jdbc:mysql://"+host+":"+port+"/"+database+"?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=UTC");
+            pool.setJdbcUrl("jdbc:mysql://"+host+":"+port+"/"+database+"?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=UTC"+(settings.bool("storage.mysql.allow_public_key_retrieval",false)?"&allowPublicKeyRetrieval=true":""));
             pool.setDriverClassName("com.mysql.cj.jdbc.Driver");
             pool.setUsername(settings.first("","storage.mysql.username","storage.mysql.user","mysql.username"));
             pool.setPassword(settings.first("","storage.mysql.password","mysql.password"));
