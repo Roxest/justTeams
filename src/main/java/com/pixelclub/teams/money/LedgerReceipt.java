@@ -52,8 +52,17 @@ final class LedgerReceipt {
         String currency = primaryKey();
         return adjust(new Ledger() {
             @Override public String adjust(BigDecimal d, BigDecimal floor) throws Exception {
-                return (String) call("adjust", new Class<?>[]{UUID.class, String.class, BigDecimal.class, BigDecimal.class, String.class, String.class},
-                        player, currency, d, floor, key, key);
+                // The pack's money ledger takes the reason from this thread-local (pxceco sets it on its own path):
+                // without it the line is written with reason=null (scrutinize MED-3)
+                ThreadLocal<String> reason = packReason();
+                String before = reason == null ? null : reason.get();
+                if (reason != null) reason.set(key);
+                try {
+                    return (String) call("adjust", new Class<?>[]{UUID.class, String.class, BigDecimal.class, BigDecimal.class, String.class, String.class},
+                            player, currency, d, floor, key, key);
+                } finally {
+                    if (reason != null) { if (before == null) reason.remove(); else reason.set(before); }
+                }
             }
             @Override public boolean unsettled() throws Exception {
                 return Boolean.TRUE.equals(call("unsettled", new Class<?>[]{UUID.class, String.class}, player, currency));
@@ -61,8 +70,12 @@ final class LedgerReceipt {
         }, delta, key, SETTLE_WAIT_MS);
     }
 
-    /** Longest wait (on the caller's thread) for an UNSETTLED attempt to settle before the same key is asked again. */
-    static final long SETTLE_WAIT_MS = 1_500L;
+    /**
+     * Longest total wait, over all attempts, on the caller's thread (the server thread: bank ops run from commands and
+     * menus inside TeamsCore's monitor). Past it the op freezes (safe). The ledger settles an UNSETTLED commit in
+     * ~150-350 ms (rig K1); xs5 allowed 1.5 s per wait, up to ~3.75 s per op (scrutinize MED-4).
+     */
+    static final long SETTLE_WAIT_MS = 600L;
 
     interface Ledger {
         String adjust(BigDecimal delta, BigDecimal floor) throws Exception;
@@ -75,18 +88,29 @@ final class LedgerReceipt {
      * wallet is waited on until it settles and the SAME key is asked again: SUCCESS / REPLAYED = applied (exactly once),
      * anything else = unknown and the op freezes (rig K1 2026-10-13 fault run: a held COMMIT, then the breaker opened and
      * the retry answered FAILED - "not applied" there would have cancelled an op whose debit could still have landed).
+     * Needs pxc-ledger 0.3.5+: a first FAILED is then definite (UNSETTLED comes from the call's own outcome, not a second
+     * look at the wallet), and the same key asked during a committed-after-FAILED hold is REPLAYED (scrutinize HIGH-1, MED-2).
      */
-    static boolean adjust(Ledger ledger, double delta, String key, long settleWaitMs) throws Exception {
+    static boolean adjust(Ledger ledger, double delta, String key, long waitBudgetMs) throws Exception {
         BigDecimal d = BigDecimal.valueOf(delta);
         BigDecimal floor = delta < 0 ? BigDecimal.ZERO : null; // a withdraw never takes the wallet below zero (pxceco's rule)
+        long deadline = System.nanoTime() + waitBudgetMs * 1_000_000L;
         boolean uncertain = false;
         String last = null;
         for (int attempt = 0; attempt < 3; attempt++) {
-            if (uncertain) {
-                long until = System.nanoTime() + settleWaitMs * 1_000_000L;
-                while (ledger.unsettled() && System.nanoTime() < until) Thread.sleep(25L);
-            } else if (attempt > 0) {
-                Thread.sleep(50L * attempt);
+            try {
+                if (uncertain) {
+                    while (ledger.unsettled()) {
+                        if (System.nanoTime() >= deadline) throw new IllegalStateException("ledger adjust outcome unknown for " + key + " (still UNSETTLED after " + waitBudgetMs + " ms)");
+                        Thread.sleep(25L);
+                    }
+                } else if (attempt > 0) {
+                    if (System.nanoTime() + 50_000_000L * attempt >= deadline) break;
+                    Thread.sleep(50L * attempt);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt(); // keep the stop's interrupt; the op freezes (outcome not proven)
+                throw new IllegalStateException("ledger adjust interrupted for " + key, e);
             }
             last = ledger.adjust(d, floor);
             switch (last) {
@@ -102,6 +126,15 @@ final class LedgerReceipt {
         }
         if (!uncertain && "BUSY".equals(last)) return false; // BUSY = refused before any write
         throw new IllegalStateException("ledger adjust outcome unknown for " + key + " (last " + last + (uncertain ? ", an attempt was UNSETTLED" : "") + ")");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ThreadLocal<String> packReason() {
+        try {
+            return (ThreadLocal<String>) Class.forName("com.pixelclub.pack.econ.EconomyLedger").getField("REASON").get(null);
+        } catch (Exception | LinkageError e) {
+            return null; // no pack (or an older one): the ledger row still carries the key as its attribution
+        }
     }
 
     private static String primaryKey() throws Exception {

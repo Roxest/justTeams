@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /** The keyed ledger move's outcome rule (+xs5, rig K1 2026-10-13 fault run). */
 class LedgerReceiptTest {
-    static final class Script implements LedgerReceipt.Ledger {
+    static class Script implements LedgerReceipt.Ledger {
         final Deque<String> answers;
         final Deque<Boolean> unsettled = new ArrayDeque<>();
         int asks, settleChecks;
@@ -55,6 +55,28 @@ class LedgerReceiptTest {
 
     @Test void busyOnlyIsNotApplied() throws Exception {
         assertFalse(LedgerReceipt.adjust(new Script("BUSY", "BUSY", "BUSY"), 100, "k", 10));
+    }
+
+    @Test void stillUnsettledPastTheBudgetFreezesWithinIt() {
+        // scrutinize MED-4: the total wait is bounded (server thread)
+        Script s = new Script("UNSETTLED", "SUCCESS") {
+            @Override public boolean unsettled() { settleChecks++; return true; }
+        };
+        long t0 = System.nanoTime();
+        assertThrows(IllegalStateException.class, () -> LedgerReceipt.adjust(s, -100, "k", 200));
+        long ms = (System.nanoTime() - t0) / 1_000_000L;
+        assertTrue(ms < 600, "bounded by the budget, took " + ms + " ms");
+        assertEquals(1, s.asks, "never re-asked while still unsettled");
+    }
+
+    @Test void anInterruptFreezesAndKeepsTheFlag() {
+        Thread.currentThread().interrupt();
+        try {
+            assertThrows(IllegalStateException.class, () -> LedgerReceipt.adjust(new Script("BUSY", "SUCCESS"), 100, "k", 1_000));
+            assertTrue(Thread.currentThread().isInterrupted(), "the interrupt is kept for the caller");
+        } finally {
+            Thread.interrupted();
+        }
     }
 
     @Test void keyConflictThrows() {

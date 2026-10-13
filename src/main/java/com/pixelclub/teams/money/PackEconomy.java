@@ -47,11 +47,15 @@ public final class PackEconomy implements DurableEconomy {
         if(!Double.isFinite(delta)||delta==0||!hasAccount(player))throw new IllegalArgumentException("invalid transfer");
         anchors.put(player,WalletFence.checkpoint());
         // Under pxc-ledger: one keyed move per op and direction (retry-safe); an outcome still unknown throws and the op freezes as before.
-        if(LedgerReceipt.active())return LedgerReceipt.adjust(player,delta,reason);
+        // xs6: whether THIS call's false is definite is recorded with the call (scrutinize LOW-6: asking active() again could differ)
+        LAST_DEFINITE.set(false);
+        if(LedgerReceipt.active()){boolean applied=LedgerReceipt.adjust(player,delta,reason);LAST_DEFINITE.set(!applied);return applied;}
         Object result=call(delta<0?"withdraw":"deposit",new Class<?>[]{UUID.class,String.class,double.class,String.class},player,"",Math.abs(delta),reason);
         return Boolean.TRUE.equals(Class.forName("com.pixelclub.pack.econ.EconomyService$Result").getMethod("success").invoke(result));
     }
-    @Override public boolean definiteRefusals() { return LedgerReceipt.active(); }
+    private static final ThreadLocal<Boolean> LAST_DEFINITE=ThreadLocal.withInitial(()->false);
+    /** The last change() on this thread returned false through a keyed ledger move that definitely did not apply. */
+    @Override public boolean definiteRefusals() { return LAST_DEFINITE.get(); }
     @Override public boolean flushConfirmed(UUID player,double expected) throws Exception {
         if(!hasAccount(player)||!same(balance(player),expected))return false;
         // pxc-ledger writes no wallet file: its receipt is a committed MySQL read (see LedgerReceipt).
