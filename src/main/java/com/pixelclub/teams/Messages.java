@@ -49,6 +49,14 @@ final class Messages {
         Map.entry("UPGRADES_DISABLED","team_upgrades_disabled"),
         Map.entry("PVP_COOLDOWN","pvp_toggle_cooldown"));
 
+    /** Codes this port added (X4) that no donor messages.yml has: shown in Thai unless messages.yml defines the code. */
+    private static final Map<String,String> FALLBACK=Map.of(
+        "REMOTE_TRAVEL","&eกำลังพาไปเซิร์ฟ <server>...",
+        "REMOTE_TRAVEL_REFUSED","&cไปเซิร์ฟ <server> ไม่ได้ตอนนี้: <reason>",
+        "REMOTE_WARP_LOCKED","&cวาร์ป <warp> อยู่อีกเซิร์ฟและตั้งรหัสไว้ — ใช้ได้เฉพาะในเซิร์ฟนั้น");
+
+    static String fallback(String code){return FALLBACK.get(code);}
+
     /** messages.yml key for code, or null when the donor has none; MISSING_ARGUMENT prefers usage_&lt;action&gt;. */
     static String key(String code,Map<String,String> values,Predicate<String> exists){
         if(code.equals("MISSING_ARGUMENT")&&values.containsKey("action")){String usage="usage_"+values.get("action");if(exists.test(usage))return usage;}

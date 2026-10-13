@@ -107,7 +107,7 @@ public final class TeamsCore implements AutoCloseable {
     public void storageFailed(Throwable error){for(int depth=0;error!=null&&depth<10;depth++,error=error.getCause())if(error instanceof SQLException){snapshots.failed();return;}}
     public void refuse(ServerPlayer player,Throwable error){storageFailed(error);if(error instanceof Refusal refusal)say(player,refusal.getMessage(),refusal.values,"&c");else success(player,"&cSTORAGE_"+error.getClass().getSimpleName());}
     /** Donor messages.yml text for a port code (Messages), with its placeholders; the bare code only when the donor has no key. */
-    public void say(ServerPlayer player,String code,Map<String,String> values,String colour){String key=Messages.key(code,values,k->settings.message(k,null)!=null);String format=key==null?null:settings.message(key,null);if(format==null){success(player,colour+code);return;}player.sendSystemMessage(Texts.template(settings.message("prefix","&7[Team] ")+format,values,Map.of()));}
+    public void say(ServerPlayer player,String code,Map<String,String> values,String colour){String key=Messages.key(code,values,k->settings.message(k,null)!=null);String format=key==null?null:settings.message(key,null);if(format==null)format=Messages.fallback(code);if(format==null){success(player,colour+code);return;}player.sendSystemMessage(Texts.template(settings.message("prefix","&7[Team] ")+format,values,Map.of()));}
     public void safely(ServerPlayer player,Throwing task){try{task.run();}catch(Exception e){refuse(player,e);}}
     @FunctionalInterface public interface Throwing{void run()throws Exception;}
     public synchronized void joined(ServerPlayer player)throws Exception {
@@ -262,10 +262,10 @@ public final class TeamsCore implements AutoCloseable {
     }
     public synchronized void deleteWarp(ServerPlayer player,String name)throws Exception {check(player,"delwarp");Team team=requireTeam(player);if(!Access.elevated(requireMember(player))&&!name.equalsIgnoreCase(player.getGameProfile().getName()))throw new Refusal("DENIED");ensureChanged(store.deleteWarp(team.id(),name));warpNameCache.clear();say(player,"WARP_DELETED",Map.of("warp",name),"&a");}
     public synchronized void teleport(ServerPlayer player,String kind,String name,String password)throws Exception {
-        check(player,kind);Team team=requireTeam(player);String location,serverId;
+        check(player,kind);Team team=requireTeam(player);String location,serverId;boolean locked=false;
         if(kind.equals("home")){flag(player,"can_use_home","home");location=team.location();serverId=(String)team.field("home_server");}
-        else {Map<String,Object> warp=store.rows("team_warps","team_id",team.id()).stream().filter(row->name.equalsIgnoreCase(row.get("warp_name").toString())).findFirst().orElseThrow(()->new Refusal("NO_WARP",Map.of("warp",name)));location=(String)warp.get("location");serverId=(String)warp.get("server_name");String expected=(String)warp.get("password");if(expected!=null&&!expected.isEmpty()&&!expected.equals(password))throw new Refusal(password==null?"WARP_PASSWORD_REQUIRED":"WARP_PASSWORD_INCORRECT",Map.of("warp",name));}
-        if(location==null||location.isEmpty())throw new Refusal("NO_HOME");if(serverId!=null&&!serverId.isEmpty()&&!serverId.equals(serverName()))throw new Refusal("REMOTE_SERVER_UNAVAILABLE");
+        else {Map<String,Object> warp=store.rows("team_warps","team_id",team.id()).stream().filter(row->name.equalsIgnoreCase(row.get("warp_name").toString())).findFirst().orElseThrow(()->new Refusal("NO_WARP",Map.of("warp",name)));location=(String)warp.get("location");serverId=(String)warp.get("server_name");String expected=(String)warp.get("password");if(expected!=null&&!expected.isEmpty()&&!expected.equals(password))throw new Refusal(password==null?"WARP_PASSWORD_REQUIRED":"WARP_PASSWORD_INCORRECT",Map.of("warp",name));locked=expected!=null&&!expected.isEmpty();}
+        if(location==null||location.isEmpty())throw new Refusal("NO_HOME");if(serverId!=null&&!serverId.isEmpty()&&!serverId.equals(serverName())){remoteTeleport(player,kind,name,serverId,locked);return;}
         String[] fields=location.split(",",-1);if(fields.length!=6)throw new Refusal("INVALID_LOCATION");ServerLevel target=resolveWorld(fields[0]);if(target==null)throw new Refusal("WORLD_UNAVAILABLE");
         double x=Double.parseDouble(fields[1]),y=Double.parseDouble(fields[2]),z=Double.parseDouble(fields[3]);float yaw=Float.parseFloat(fields[4]),pitch=Float.parseFloat(fields[5]);
         if(!Double.isFinite(x)||!Double.isFinite(y)||!Double.isFinite(z)||!Float.isFinite(yaw)||!Float.isFinite(pitch)||Math.abs(x)>29_999_984||Math.abs(z)>29_999_984)throw new Refusal("INVALID_LOCATION");
@@ -327,6 +327,21 @@ public final class TeamsCore implements AutoCloseable {
     public synchronized void death(LivingEntity entity,DamageSource source)throws Exception {
         if(entity instanceof ServerPlayer victim){Optional<Team> team=store.teamOf(victim.getUUID());if(team.isPresent()){Team t=team.get();store.updateTeam(t.id(),t.owner(),Map.of("deaths",((Number)t.field("deaths")).intValue()+1));}}
         if(entity instanceof ServerPlayer victim&&victim.getKillCredit() instanceof ServerPlayer killer){Optional<Team> team=store.teamOf(killer.getUUID()),other=store.teamOf(victim.getUUID());if(team.isPresent()&&(other.isEmpty()||team.get().id()!=other.get().id())){Team t=team.get();store.updateTeam(t.id(),t.owner(),Map.of("kills",((Number)t.field("kills")).intValue()+1));}}
+    }
+    /**
+     * X4 (x4.remote_teleport, off = REMOTE_SERVER_UNAVAILABLE as before): a team home/warp saved on another backend hands
+     * the player there through pxc-xfer and runs the same /team home|warp on arrival, where it is local - permission,
+     * cost, cooldown and warm-up are decided there, once, and nothing is charged here. A password warp is not sent: the
+     * password would ride in the hand-off line and its log (same rule as remote /pw, Kraus 10-13).
+     */
+    private void remoteTeleport(ServerPlayer player,String kind,String name,String serverId,boolean locked)throws Exception{
+        RemoteTravel plan=RemoteTravel.plan(settings.bool("x4.remote_teleport",false),net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("pxcxfer"),locked,kind,name,settings.text("x4.proxy_names."+serverId,serverId),settings.text("x4.arrival_command","team"));
+        if(plan.refusal()!=null)throw new Refusal(plan.refusal(),Map.of("warp",name==null?"":name));
+        String dest=plan.dest(),after=plan.after();
+        String why=XferBridge.go(player,dest,after);
+        if(why!=null)throw new Refusal("REMOTE_TRAVEL_REFUSED",Map.of("server",dest,"reason",why));
+        TeamsMod.LOG.info("[pxc-teams] X4 {} {} -> {} for {} (then '{}')",kind,name==null?"":name,dest,player.getGameProfile().getName(),after);
+        say(player,"REMOTE_TRAVEL",Map.of("server",dest),"&e");
     }
     private final Map<UUID,Map.Entry<Long,List<String>>> warpNameCache=new HashMap<>();
     /** Own team's warp names for /team warp tab-completion (donor parity); cached 5 s so typing does not query per key. */
