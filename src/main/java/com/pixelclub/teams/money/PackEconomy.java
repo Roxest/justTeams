@@ -46,9 +46,12 @@ public final class PackEconomy implements DurableEconomy {
     @Override public boolean change(UUID player,double delta,String reason) throws Exception {
         if(!Double.isFinite(delta)||delta==0||!hasAccount(player))throw new IllegalArgumentException("invalid transfer");
         anchors.put(player,WalletFence.checkpoint());
+        // Under pxc-ledger: one keyed move per op and direction (retry-safe); an outcome still unknown throws and the op freezes as before.
+        if(LedgerReceipt.active())return LedgerReceipt.adjust(player,delta,reason);
         Object result=call(delta<0?"withdraw":"deposit",new Class<?>[]{UUID.class,String.class,double.class,String.class},player,"",Math.abs(delta),reason);
         return Boolean.TRUE.equals(Class.forName("com.pixelclub.pack.econ.EconomyService$Result").getMethod("success").invoke(result));
     }
+    @Override public boolean definiteRefusals() { return LedgerReceipt.active(); }
     @Override public boolean flushConfirmed(UUID player,double expected) throws Exception {
         if(!hasAccount(player)||!same(balance(player),expected))return false;
         // pxc-ledger writes no wallet file: its receipt is a committed MySQL read (see LedgerReceipt).

@@ -201,6 +201,24 @@ class BankServiceTest {
         assertEquals(100, economy.durable(member));
     }
 
+    @Test void definiteLedgerRefusalCancelsTheDepositInsteadOfFreezing() throws Exception {
+        // +xs4 (rig K1 2026-10-13): under pxc-ledger a false change() is "not applied" (keyed move), so the op is cancelled
+        economy.definite = true;
+        economy.outcomes.add(Outcome.NOT_APPLIED);
+        BankService.Result r = bank.transfer("ledger_refused", owner, true, 20, 0, false);
+        assertFalse(r.success());
+        assertFalse(r.pending());
+        assertEquals("PLAYER_DEBIT_REFUSED", r.code());
+        assertState(owner, 100, 0);
+        assertTrue(bank.transfer("after_ledger_refusal", owner, true, 20, 0, false).success(), "not frozen: the next op runs");
+        assertState(owner, 80, 20);
+    }
+
+    @Test void withoutDefiniteRefusalsAFalseChangeStillFreezes() throws Exception {
+        economy.outcomes.add(Outcome.NOT_APPLIED);
+        assertPendingFrozen(bank.transfer("unknown_refusal", owner, true, 20, 0, false), "unknown_refusal");
+    }
+
     @Test void providerFalseAfterApplyingFreezesAndCannotReplay() throws Exception {
         economy.outcomes.add(Outcome.FALSE_AFTER);
         assertPendingFrozen(bank.transfer("false_after_apply", owner, true, 20, 0, false), "false_after_apply");
@@ -533,7 +551,7 @@ class BankServiceTest {
         assertEquals(pBefore, economy.durable(player)); assertEquals(bBefore, balance());
     }
 
-    private enum Outcome { SUCCESS, FALSE_AFTER, THROW_AFTER }
+    private enum Outcome { SUCCESS, FALSE_AFTER, THROW_AFTER, NOT_APPLIED }
     @FunctionalInterface private interface FixtureAction { void run() throws Exception; }
     private static final class FakeEconomy implements DurableEconomy {
         private final Map<UUID, Double> memory = new HashMap<>(), saved = new HashMap<>();
@@ -545,12 +563,15 @@ class BankServiceTest {
         double memory(UUID player) { return memory.get(player); }
         double durable(UUID player) { return saved.get(player); }
         FakeEconomy restart() { FakeEconomy fresh = new FakeEconomy(); saved.forEach(fresh::account); return fresh; }
+        boolean definite;
+        @Override public boolean definiteRefusals() { return definite; }
         @Override public boolean available() { calls.add("available"); return true; }
         @Override public boolean hasAccount(UUID player) { calls.add("has:" + player); return memory.containsKey(player); }
         @Override public double balance(UUID player) { calls.add("balance:" + player); return memory(player); }
         @Override public boolean change(UUID player, double delta, String reason) throws Exception {
             calls.add("change:" + delta + ":" + reason); changes++;
             if (!memory.containsKey(player)) throw new IllegalStateException("Fixture cannot create accounts");
+            if (!outcomes.isEmpty() && outcomes.peekFirst() == Outcome.NOT_APPLIED) { outcomes.removeFirst(); return false; }
             memory.put(player, memory(player) + delta);
             Outcome outcome = outcomes.isEmpty() ? Outcome.SUCCESS : outcomes.removeFirst();
             if (outcome != Outcome.SUCCESS) saved.put(player, memory(player));

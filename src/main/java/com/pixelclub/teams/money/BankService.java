@@ -54,7 +54,10 @@ public final class BankService {
             }
             if(fromPlayer>0) {
                 store.updateOperation(opid,"PLAYER_INTENT",payload.toString());append(opid,"PLAYER_INTENT",payload);
-                if(!economy.change(player,-fromPlayer,"pxc:team-feature:"+opid)||!economy.flushConfirmed(player,before-fromPlayer))return freeze(opid,"COST_PLAYER_UNKNOWN",payload);
+                boolean charged=economy.change(player,-fromPlayer,"pxc:team-feature:"+opid);
+                // +xs4: under pxc-ledger a refusal is definite (keyed move); nothing was taken from the bank, so cancel instead of freezing
+                if(!charged&&fromBank==0&&economy.definiteRefusals()){store.updateOperation(opid,"CANCELLED",payload.toString());append(opid,"CANCELLED",payload);return refuse("PLAYER_COST_REFUSED",opid);}
+                if(!charged||!economy.flushConfirmed(player,before-fromPlayer))return freeze(opid,"COST_PLAYER_UNKNOWN",payload);
             }
             store.updateOperation(opid,"CHARGED",payload.toString());append(opid,"CHARGED",payload);
             return new Result(true,false,"CHARGED",opid,before,before-fromPlayer,bankBefore,bankBefore-fromBank);
@@ -140,6 +143,8 @@ public final class BankService {
             if(deposit) {
                 store.updateOperation(opid,"PLAYER_INTENT",payload.toString());append(opid,"PLAYER_INTENT",payload);
                 boolean changed=economy.change(player,-amount-fee,"pxc:team-bank:"+opid);
+                // +xs4: under pxc-ledger a refusal is definite (keyed move) and the bank is not touched yet: cancel, not freeze
+                if(!changed&&economy.definiteRefusals()){store.updateOperation(opid,"CANCELLED",payload.toString());append(opid,"CANCELLED",payload);return refuse("PLAYER_DEBIT_REFUSED",opid);}
                 if(!changed||!economy.flushConfirmed(player,playerExpected))return freeze(opid,"PLAYER_OUTCOME_UNKNOWN",payload);
                 store.updateOperation(opid,"PLAYER_APPLIED",payload.toString());append(opid,"PLAYER_APPLIED",payload);
                 TeamStore.BankResult bank=store.mutateBank(opid,team.id(),player,amount,cap,false,bypass);

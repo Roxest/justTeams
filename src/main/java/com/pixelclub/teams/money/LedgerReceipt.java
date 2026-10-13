@@ -41,6 +41,32 @@ final class LedgerReceipt {
         return PackEconomy.same(committed.doubleValue(), expected);
     }
 
+    /**
+     * The player's side of a bank op as one keyed ledger move: {@code key} (the op's reason, unique per op and direction)
+     * moves money at most once, so an unknown outcome is retried with the same key instead of frozen. Rig K1 2026-10-13:
+     * through pxceco a deposit that overran the 150 ms budget came back UNSETTLED, was committed 67 ms later, and the op
+     * froze (PLAYER_OUTCOME_UNKNOWN) with the player's money out and the bank not credited; PRD's tail is 0.2% of commits
+     * over 150 ms (10-07 latency run, n=5039). Returns true = applied, false = not applied; throws when still unknown.
+     */
+    static boolean adjust(UUID player, double delta, String key) throws Exception {
+        String currency = primaryKey();
+        BigDecimal d = BigDecimal.valueOf(delta);
+        BigDecimal floor = delta < 0 ? BigDecimal.ZERO : null; // a withdraw never takes the wallet below zero (pxceco's rule)
+        String last = null;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            if (attempt > 0) Thread.sleep(50L * attempt); // UNSETTLED settles within the ledger's commit grace
+            last = (String) call("adjust", new Class<?>[]{UUID.class, String.class, BigDecimal.class, BigDecimal.class, String.class, String.class},
+                    player, currency, d, floor, key, key);
+            switch (last) {
+                case "SUCCESS", "REPLAYED" -> { return true; }
+                case "FAILED", "BELOW_FLOOR", "CANCELLED", "INVALID", "INACTIVE" -> { return false; }
+                case "UNSETTLED", "BUSY" -> { }
+                default -> throw new IllegalStateException("ledger adjust " + last + " for " + key); // KEY_CONFLICT: never expected
+            }
+        }
+        throw new IllegalStateException("ledger adjust still " + last + " for " + key + " after 3 attempts");
+    }
+
     private static String primaryKey() throws Exception {
         Class<?> api = Class.forName("net.impactdev.impactor.api.economy.EconomyService");
         Object service = api.getMethod("instance").invoke(null);

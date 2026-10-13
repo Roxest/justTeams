@@ -10,4 +10,6 @@ public interface DurableEconomy {
     boolean change(UUID player, double delta, String reason) throws Exception;
     boolean flushConfirmed(UUID player, double expected) throws Exception;
     default String provider() { return "test"; }
+    /** true when change() returning false means "definitely not applied" (pxc-ledger keyed moves), not "unknown". */
+    default boolean definiteRefusals() { return false; }
 }
