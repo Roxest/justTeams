@@ -50,21 +50,58 @@ final class LedgerReceipt {
      */
     static boolean adjust(UUID player, double delta, String key) throws Exception {
         String currency = primaryKey();
+        return adjust(new Ledger() {
+            @Override public String adjust(BigDecimal d, BigDecimal floor) throws Exception {
+                return (String) call("adjust", new Class<?>[]{UUID.class, String.class, BigDecimal.class, BigDecimal.class, String.class, String.class},
+                        player, currency, d, floor, key, key);
+            }
+            @Override public boolean unsettled() throws Exception {
+                return Boolean.TRUE.equals(call("unsettled", new Class<?>[]{UUID.class, String.class}, player, currency));
+            }
+        }, delta, key, SETTLE_WAIT_MS);
+    }
+
+    /** Longest wait (on the caller's thread) for an UNSETTLED attempt to settle before the same key is asked again. */
+    static final long SETTLE_WAIT_MS = 1_500L;
+
+    interface Ledger {
+        String adjust(BigDecimal delta, BigDecimal floor) throws Exception;
+        boolean unsettled() throws Exception;
+    }
+
+    /**
+     * The keyed move with the one rule that keeps it safe: a refusal (FAILED, BUSY, ...) is "not applied" only while no
+     * earlier attempt of this key came back UNSETTLED. After an UNSETTLED the earlier COMMIT may still land, so the
+     * wallet is waited on until it settles and the SAME key is asked again: SUCCESS / REPLAYED = applied (exactly once),
+     * anything else = unknown and the op freezes (rig K1 2026-10-13 fault run: a held COMMIT, then the breaker opened and
+     * the retry answered FAILED - "not applied" there would have cancelled an op whose debit could still have landed).
+     */
+    static boolean adjust(Ledger ledger, double delta, String key, long settleWaitMs) throws Exception {
         BigDecimal d = BigDecimal.valueOf(delta);
         BigDecimal floor = delta < 0 ? BigDecimal.ZERO : null; // a withdraw never takes the wallet below zero (pxceco's rule)
+        boolean uncertain = false;
         String last = null;
         for (int attempt = 0; attempt < 3; attempt++) {
-            if (attempt > 0) Thread.sleep(50L * attempt); // UNSETTLED settles within the ledger's commit grace
-            last = (String) call("adjust", new Class<?>[]{UUID.class, String.class, BigDecimal.class, BigDecimal.class, String.class, String.class},
-                    player, currency, d, floor, key, key);
+            if (uncertain) {
+                long until = System.nanoTime() + settleWaitMs * 1_000_000L;
+                while (ledger.unsettled() && System.nanoTime() < until) Thread.sleep(25L);
+            } else if (attempt > 0) {
+                Thread.sleep(50L * attempt);
+            }
+            last = ledger.adjust(d, floor);
             switch (last) {
                 case "SUCCESS", "REPLAYED" -> { return true; }
-                case "FAILED", "BELOW_FLOOR", "CANCELLED", "INVALID", "INACTIVE" -> { return false; }
-                case "UNSETTLED", "BUSY" -> { }
+                case "UNSETTLED" -> uncertain = true;
+                case "BUSY" -> { }
+                case "FAILED", "BELOW_FLOOR", "CANCELLED", "INVALID", "INACTIVE" -> {
+                    if (!uncertain) return false;
+                    // an earlier attempt may still have committed: ask again after it settles, or give up as unknown
+                }
                 default -> throw new IllegalStateException("ledger adjust " + last + " for " + key); // KEY_CONFLICT: never expected
             }
         }
-        throw new IllegalStateException("ledger adjust still " + last + " for " + key + " after 3 attempts");
+        if (!uncertain && "BUSY".equals(last)) return false; // BUSY = refused before any write
+        throw new IllegalStateException("ledger adjust outcome unknown for " + key + " (last " + last + (uncertain ? ", an attempt was UNSETTLED" : "") + ")");
     }
 
     private static String primaryKey() throws Exception {
