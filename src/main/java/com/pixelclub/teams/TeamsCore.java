@@ -130,7 +130,11 @@ public final class TeamsCore implements AutoCloseable {
     public String playerName(UUID player)throws Exception{ServerPlayer online=server.getPlayerList().getPlayer(player);if(online!=null)return online.getGameProfile().getName();return Objects.toString(snapshots.name(player),player.toString());}
     public int capacity(Team team){int base=settings.integer("settings.max_team_size",10);int tier=settings.integer("team_upgrades.tiers."+team.tier()+".max_members",base);int value=Math.max(base,tier);ServerPlayer owner=server.getPlayerList().getPlayer(team.owner());if(owner!=null&&settings.bool("settings.permission_based_team_size",true))value=Math.max(value,Access.permissionMaximum(owner,"justteams.team.size.",1000));return value;}
     public int maxWarps(Team team){return Math.min(100,Math.max(1,settings.integer("team_upgrades.tiers."+team.tier()+".max_warps",settings.integer("team_warps.max_warps",5))));}
-    public String serverName(){return settings.first("survival","server-identifier","server_identifier");}
+    public String serverName(){return settings.first("survival","x4.server_id","server-identifier","server_identifier");}
+    /** X4 backend names (= Velocity server names), from x4.servers. */
+    Set<String> x4Servers(){Object v=settings.value("x4.servers");Set<String> out=new HashSet<>();if(v instanceof Collection<?> c)for(Object o:c)if(o!=null)out.add(o.toString());return out;}
+    /** X4 world name -> backend that has it, from x4.world_servers; used for rows saved before X4 (all "survival"). */
+    Map<String,String> x4WorldServers(){Object v=settings.value("x4.world_servers");Map<String,String> out=new HashMap<>();if(v instanceof Map<?,?> m)for(var e:m.entrySet())if(e.getKey()!=null&&e.getValue()!=null)out.put(e.getKey().toString(),e.getValue().toString());return out;}
     public void ensureChanged(boolean changed){if(!changed)throw new Refusal("STATE_REFUSED");}
     public synchronized boolean paid(ServerPlayer player,String feature,boolean bankFirst,Callable<Boolean> action)throws Exception {
         return paidAmount(player,settings.cost(feature),bankFirst,action);
@@ -265,7 +269,9 @@ public final class TeamsCore implements AutoCloseable {
         check(player,kind);Team team=requireTeam(player);String location,serverId;boolean locked=false;
         if(kind.equals("home")){flag(player,"can_use_home","home");location=team.location();serverId=(String)team.field("home_server");}
         else {Map<String,Object> warp=store.rows("team_warps","team_id",team.id()).stream().filter(row->name.equalsIgnoreCase(row.get("warp_name").toString())).findFirst().orElseThrow(()->new Refusal("NO_WARP",Map.of("warp",name)));location=(String)warp.get("location");serverId=(String)warp.get("server_name");String expected=(String)warp.get("password");if(expected!=null&&!expected.isEmpty()&&!expected.equals(password))throw new Refusal(password==null?"WARP_PASSWORD_REQUIRED":"WARP_PASSWORD_INCORRECT",Map.of("warp",name));locked=expected!=null&&!expected.isEmpty();}
-        if(location==null||location.isEmpty())throw new Refusal("NO_HOME");if(serverId!=null&&!serverId.isEmpty()&&!serverId.equals(serverName())){remoteTeleport(player,kind,name,serverId,locked);return;}
+        if(location==null||location.isEmpty())throw new Refusal("NO_HOME");
+        if(settings.bool("x4.remote_teleport",false)){String world=location.split(",",-1)[0];String dest=RemoteTravel.route(serverName(),serverId,x4Servers(),resolveWorld(world)!=null,world,x4WorldServers());if(dest!=null){remoteTeleport(player,kind,name,dest,locked);return;}}
+        else if(serverId!=null&&!serverId.isEmpty()&&!serverId.equals(serverName()))throw new Refusal("REMOTE_SERVER_UNAVAILABLE");
         String[] fields=location.split(",",-1);if(fields.length!=6)throw new Refusal("INVALID_LOCATION");ServerLevel target=resolveWorld(fields[0]);if(target==null)throw new Refusal("WORLD_UNAVAILABLE");
         double x=Double.parseDouble(fields[1]),y=Double.parseDouble(fields[2]),z=Double.parseDouble(fields[3]);float yaw=Float.parseFloat(fields[4]),pitch=Float.parseFloat(fields[5]);
         if(!Double.isFinite(x)||!Double.isFinite(y)||!Double.isFinite(z)||!Float.isFinite(yaw)||!Float.isFinite(pitch)||Math.abs(x)>29_999_984||Math.abs(z)>29_999_984)throw new Refusal("INVALID_LOCATION");
@@ -329,15 +335,15 @@ public final class TeamsCore implements AutoCloseable {
         if(entity instanceof ServerPlayer victim&&victim.getKillCredit() instanceof ServerPlayer killer){Optional<Team> team=store.teamOf(killer.getUUID()),other=store.teamOf(victim.getUUID());if(team.isPresent()&&(other.isEmpty()||team.get().id()!=other.get().id())){Team t=team.get();store.updateTeam(t.id(),t.owner(),Map.of("kills",((Number)t.field("kills")).intValue()+1));}}
     }
     /**
-     * X4 (x4.remote_teleport, off = REMOTE_SERVER_UNAVAILABLE as before): a team home/warp saved on another backend hands
-     * the player there through pxc-xfer and runs the same /team home|warp on arrival, where it is local - permission,
+     * X4 (x4.remote_teleport, off = REMOTE_SERVER_UNAVAILABLE as before): a team home/warp on another backend (see
+     * RemoteTravel.route) hands the player there through pxc-xfer and runs the same /team home|warp on arrival, where it is local - permission,
      * cost, cooldown and warm-up are decided there, once, and nothing is charged here. A password warp is not sent: the
      * password would ride in the hand-off line and its log (same rule as remote /pw, Kraus 10-13).
      */
-    private void remoteTeleport(ServerPlayer player,String kind,String name,String serverId,boolean locked)throws Exception{
-        RemoteTravel plan=RemoteTravel.plan(settings.bool("x4.remote_teleport",false),net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("pxcxfer"),locked,kind,name,settings.text("x4.proxy_names."+serverId,serverId),settings.text("x4.arrival_command","team"));
+    private void remoteTeleport(ServerPlayer player,String kind,String name,String dest,boolean locked)throws Exception{
+        RemoteTravel plan=RemoteTravel.plan(true,net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("pxcxfer"),locked,kind,name,dest,settings.text("x4.arrival_command","team"));
         if(plan.refusal()!=null)throw new Refusal(plan.refusal(),Map.of("warp",name==null?"":name));
-        String dest=plan.dest(),after=plan.after();
+        String after=plan.after();
         String why=XferBridge.go(player,dest,after);
         if(why!=null)throw new Refusal("REMOTE_TRAVEL_REFUSED",Map.of("server",dest,"reason",why));
         TeamsMod.LOG.info("[pxc-teams] X4 {} {} -> {} for {} (then '{}')",kind,name==null?"":name,dest,player.getGameProfile().getName(),after);
