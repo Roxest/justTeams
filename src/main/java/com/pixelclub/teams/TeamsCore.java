@@ -45,7 +45,8 @@ public final class TeamsCore implements AutoCloseable {
     private long ticks;
     private volatile boolean ready;
     private record Prompt(long expires,Consumer<String> callback){}
-    private record Warmup(long at,ServerLevel origin,Vec3 position,ServerLevel target,double x,double y,double z,float yaw,float pitch,String kind,String name){}
+    /** target null = X4 remote: when due, hand off to name (the backend) and run after there. */
+    private record Warmup(long at,ServerLevel origin,Vec3 position,ServerLevel target,double x,double y,double z,float yaw,float pitch,String kind,String name,String after){}
     public static final class Refusal extends RuntimeException {final Map<String,String> values;public Refusal(String code){this(code,Map.of());}public Refusal(String code,Map<String,String> values){super(code);this.values=values;}}
 
     public TeamsCore(MinecraftServer server,Settings settings)throws Exception {
@@ -60,7 +61,8 @@ public final class TeamsCore implements AutoCloseable {
         snapshots=new TeamSnapshots(store);
         bank=new BankService(store,new PackEconomy(FabricLoader.getInstance().getGameDir()),settings.folder().resolve("bank-intents.jsonl"),settings.number("team_bank.max_balance",-1));
         menus=new TeamMenus(this);chests=new TeamChests(this);
-        if(settings.bool("x4.team_chat",false)){x4chat=new X4TeamChat(server,data,settings.first("donut_","storage.table_prefix","storage.mysql.table_prefix","storage.prefix"),serverName());x4chat.start();}
+        if(settings.bool("x4.team_chat",false)&&settings.value("x4.server_id")==null)TeamsMod.LOG.error("[pxc-teams] x4.team_chat is on but x4.server_id is unset - team chat stays on this backend");
+        else if(settings.bool("x4.team_chat",false)){x4chat=new X4TeamChat(server,data,settings.first("donut_","storage.table_prefix","storage.mysql.table_prefix","storage.prefix"),serverName());x4chat.start();}
         for(Operation pending:store.pendingOperationsOwnedHere())if(!(pending.kind().equals("CHEST")&&pending.phase().equals("ESCROW")))store.freezeOperation(pending.opid(),"RESTART_PENDING_"+pending.phase());
         chests.validateConvertedDonor();
         snapshots.refreshAll();
@@ -273,7 +275,7 @@ public final class TeamsCore implements AutoCloseable {
         if(kind.equals("home")){flag(player,"can_use_home","home");location=team.location();serverId=(String)team.field("home_server");}
         else {Map<String,Object> warp=store.rows("team_warps","team_id",team.id()).stream().filter(row->name.equalsIgnoreCase(row.get("warp_name").toString())).findFirst().orElseThrow(()->new Refusal("NO_WARP",Map.of("warp",name)));location=(String)warp.get("location");serverId=(String)warp.get("server_name");String expected=(String)warp.get("password");if(expected!=null&&!expected.isEmpty()&&!expected.equals(password))throw new Refusal(password==null?"WARP_PASSWORD_REQUIRED":"WARP_PASSWORD_INCORRECT",Map.of("warp",name));locked=expected!=null&&!expected.isEmpty();}
         if(location==null||location.isEmpty())throw new Refusal("NO_HOME");
-        if(settings.bool("x4.remote_teleport",false)){String world=location.split(",",-1)[0];String dest=RemoteTravel.route(serverName(),serverId,x4Servers(),resolveWorld(world)!=null,world,x4WorldServers());if(dest!=null){remoteTeleport(player,kind,name,dest,locked);return;}}
+        if(settings.bool("x4.remote_teleport",false)){if(settings.value("x4.server_id")==null){TeamsMod.LOG.error("[pxc-teams] x4.remote_teleport is on but x4.server_id is unset - remote homes/warps refused");throw new Refusal("REMOTE_SERVER_UNAVAILABLE");}String world=location.split(",",-1)[0];String dest=RemoteTravel.route(serverName(),serverId,x4Servers(),resolveWorld(world)!=null,world,x4WorldServers());if(dest!=null){remoteTeleport(player,kind,name,dest,locked);return;}}
         else if(serverId!=null&&!serverId.isEmpty()&&!serverId.equals(serverName()))throw new Refusal("REMOTE_SERVER_UNAVAILABLE");
         String[] fields=location.split(",",-1);if(fields.length!=6)throw new Refusal("INVALID_LOCATION");ServerLevel target=resolveWorld(fields[0]);if(target==null)throw new Refusal("WORLD_UNAVAILABLE");
         double x=Double.parseDouble(fields[1]),y=Double.parseDouble(fields[2]),z=Double.parseDouble(fields[3]);float yaw=Float.parseFloat(fields[4]),pitch=Float.parseFloat(fields[5]);
@@ -281,7 +283,7 @@ public final class TeamsCore implements AutoCloseable {
         boolean bypass=Access.bypass(player,kind+".cooldown");String key=kind+":"+player.getUUID();long left=cooldowns.getOrDefault(key,0L)-System.currentTimeMillis();if(!bypass&&left>0)throw new Refusal("TELEPORT_COOLDOWN",Map.of("time",((left+999)/1000)+"s","seconds",String.valueOf((left+999)/1000)));
         if(!paid(player,kind,true,()->true))return;
         int delay=bypass?0:settings.integer(kind.equals("home")?"team_home.warmup_seconds":"team_warps.warmup_seconds",5)*20;
-        warmups.put(player.getUUID(),new Warmup(ticks+delay,player.serverLevel(),player.position(),target,x,y,z,yaw,pitch,kind,name==null?"":name));say(player,"TELEPORT_WARMUP",Map.of("seconds",String.valueOf(delay/20)),"&e");
+        warmups.put(player.getUUID(),new Warmup(ticks+delay,player.serverLevel(),player.position(),target,x,y,z,yaw,pitch,kind,name==null?"":name,null));say(player,"TELEPORT_WARMUP",Map.of("seconds",String.valueOf(delay/20)),"&e");
     }
     public String serialize(ServerPlayer player){return worldName(player.serverLevel())+","+player.getX()+","+player.getY()+","+player.getZ()+","+player.getYRot()+","+player.getXRot();}
     public String worldName(ServerLevel level) {
@@ -347,10 +349,18 @@ public final class TeamsCore implements AutoCloseable {
     private void remoteTeleport(ServerPlayer player,String kind,String name,String dest,boolean locked)throws Exception{
         RemoteTravel plan=RemoteTravel.plan(true,net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("pxcxfer"),locked,kind,name,dest,settings.text("x4.arrival_command","team"));
         if(plan.refusal()!=null)throw new Refusal(plan.refusal(),Map.of("warp",name==null?"":name));
-        String after=plan.after();
+        // review MED (scrutinize 10-14): the source keeps its warm-up and "moving cancels" (no charge, no cooldown here),
+        // so a cross-backend /team home is not an instant combat escape; the destination runs its own as for any local use
+        boolean bypass=Access.bypass(player,kind+".cooldown");
+        int delay=bypass?0:settings.integer(kind.equals("home")?"team_home.warmup_seconds":"team_warps.warmup_seconds",5)*20;
+        warmups.put(player.getUUID(),new Warmup(ticks+delay,player.serverLevel(),player.position(),null,0,0,0,0,0,kind,dest,plan.after()));
+        say(player,"TELEPORT_WARMUP",Map.of("seconds",String.valueOf(delay/20)),"&e");
+    }
+    private void remoteGo(ServerPlayer player,String kind,String dest,String after)throws Exception{
+        check(player,kind);if(kind.equals("home"))flag(player,"can_use_home","home");
         String why=XferBridge.go(player,dest,after);
         if(why!=null)throw new Refusal("REMOTE_TRAVEL_REFUSED",Map.of("server",dest,"reason",why));
-        TeamsMod.LOG.info("[pxc-teams] X4 {} {} -> {} for {} (then '{}')",kind,name==null?"":name,dest,player.getGameProfile().getName(),after);
+        TeamsMod.LOG.info("[pxc-teams] X4 {} -> {} for {} (then '{}')",kind,dest,player.getGameProfile().getName(),after);
         say(player,"REMOTE_TRAVEL",Map.of("server",dest),"&e");
     }
     private final Map<UUID,Map.Entry<Long,List<String>>> warpNameCache=new HashMap<>();
@@ -367,6 +377,7 @@ public final class TeamsCore implements AutoCloseable {
         Iterator<Map.Entry<UUID,Warmup>> iterator=warmups.entrySet().iterator();while(iterator.hasNext()){
             Map.Entry<UUID,Warmup> entry=iterator.next();ServerPlayer player=server.getPlayerList().getPlayer(entry.getKey());Warmup warm=entry.getValue();
             if(player==null||player.serverLevel()!=warm.origin()||player.position().distanceToSqr(warm.position())>1||!authenticated(player)){iterator.remove();if(player!=null)say(player,"TELEPORT_CANCELLED",Map.of(),"&c");continue;}
+            if(ticks>=warm.at()&&warm.target()==null){iterator.remove();try{remoteGo(player,warm.kind(),warm.name(),warm.after());}catch(Exception e){refuse(player,e);}continue;}
             if(ticks>=warm.at()){iterator.remove();try{check(player,warm.kind());if(warm.kind().equals("home"))flag(player,"can_use_home","home");player.teleportTo(warm.target(),warm.x(),warm.y(),warm.z(),warm.yaw(),warm.pitch());cooldowns.put(warm.kind()+":"+player.getUUID(),now+settings.integer(warm.kind().equals("home")?"team_home.cooldown_seconds":"team_warps.cooldown_seconds",5)*1000L);say(player,warm.kind().equals("home")?"TELEPORTED_HOME":"TELEPORTED_WARP",Map.of("warp",warm.name()),"&a");}catch(Exception e){refuse(player,e);}}
         }
         chests.tick();

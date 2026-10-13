@@ -146,6 +146,12 @@ final class X4TeamChat {
                     else out.add(new Line(id, r.getInt(2), r.getString(4), r.getString(5)));
                 }
             }
+            if (out.isEmpty()) {
+                // review LOW: AUTO_INCREMENT restarted (TRUNCATE, MySQL < 8 after the table emptied) -> follow it down
+                try (Statement st = c.createStatement(); ResultSet r = st.executeQuery("SELECT COALESCE(MAX(id),0) FROM " + table)) {
+                    if (r.next() && r.getLong(1) < after) last = r.getLong(1);
+                }
+            }
         }
         return out;
     }
