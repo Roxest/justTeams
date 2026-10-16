@@ -47,7 +47,10 @@ final class Messages {
         Map.entry("MAX_TIER","team_tier_max_reached"),
         Map.entry("TEAM_UPGRADES_DISABLED","team_upgrades_disabled"),
         Map.entry("UPGRADES_DISABLED","team_upgrades_disabled"),
-        Map.entry("PVP_COOLDOWN","pvp_toggle_cooldown"));
+        Map.entry("PVP_COOLDOWN","pvp_toggle_cooldown"),
+        // X4 replay 10-16: the second viewer saw the raw code. Not enderchest_locked_by_proxy ("on another server"):
+        // a player must not learn the network is split.
+        Map.entry("CHEST_IN_USE","enderchest_locked"));
 
     /** Codes this port added (X4) that no donor messages.yml has: shown in Thai unless messages.yml defines the code. */
     private static final Map<String,String> FALLBACK=Map.of(
