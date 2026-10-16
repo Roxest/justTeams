@@ -59,11 +59,14 @@ public final class TeamsCore implements AutoCloseable {
         store.provisionAdditiveTables();
         int staleLeases=store.releaseOwnChestLeases();if(staleLeases>0)TeamsMod.LOG.warn("[pxc-teams] released {} chest lease(s) left by this server's previous run",staleLeases);
         snapshots=new TeamSnapshots(store);
-        bank=new BankService(store,new PackEconomy(FabricLoader.getInstance().getGameDir()),settings.folder().resolve("bank-intents.jsonl"),settings.number("team_bank.max_balance",-1));
+        bank=new BankService(store,new PackEconomy(FabricLoader.getInstance().getGameDir()),settings.folder().resolve("bank-intents.jsonl"),settings.number("team_bank.max_balance",-1),BankService.PXC_LEDGER,server::execute);
+        bank.onRetried(this::bankRetried);
         menus=new TeamMenus(this);chests=new TeamChests(this);
         if(settings.bool("x4.team_chat",false)&&settings.value("x4.server_id")==null)TeamsMod.LOG.error("[pxc-teams] x4.team_chat is on but x4.server_id is unset - team chat stays on this backend");
         else if(settings.bool("x4.team_chat",false)){x4chat=new X4TeamChat(server,data,settings.first("donut_","storage.table_prefix","storage.mysql.table_prefix","storage.prefix"),serverName());x4chat.start();}
         for(Operation pending:store.pendingOperationsOwnedHere())if(!(pending.kind().equals("CHEST")&&pending.phase().equals("ESCROW")))store.freezeOperation(pending.opid(),"RESTART_PENDING_"+pending.phase());
+        // +k1a1: async bank ops whose ledger step was written are asked again with the same key (no staff needed)
+        bank.adopt(store.pendingOperationsOwnedHere());
         chests.validateConvertedDonor();
         snapshots.refreshAll();
         ready=true;
@@ -250,9 +253,26 @@ public final class TeamsCore implements AutoCloseable {
     public String platform(UUID player){try{Class<?> provider=Class.forName("org.geysermc.floodgate.api.FloodgateApi");Object api=provider.getMethod("getInstance").invoke(null);return Boolean.TRUE.equals(provider.getMethod("isFloodgatePlayer",UUID.class).invoke(api,player))?"Bedrock":"Java";}catch(ReflectiveOperationException|RuntimeException e){return "Java";}}
     public synchronized void bank(ServerPlayer player,boolean deposit,double amount,String opid)throws Exception {
         check(player,"bank");Team team=requireTeam(player);if(!settings.bool("team_bank.enabled",true))throw new Refusal("BANK_DISABLED");
-        BankService.Result result=bank.transfer(opid,player.getUUID(),deposit,amount,0,Access.bypass(player,"bank.withdraw"));
-        if(result.success()){String format=settings.message(deposit?"bank_deposit_success":"bank_withdraw_success",deposit?"&aDeposited <amount>":"&aWithdrew <amount>");player.sendSystemMessage(Texts.template(settings.message("prefix","&7[Team] ")+format,Map.of("amount",Texts.money(BankService.normalize(amount,false)),"balance",Texts.money(store.team(team.id()).orElseThrow().balance())),Map.of()));}
-        else{String message=switch(result.code()){case "NO_FUNDS","PLAYER_FUNDS","INSUFFICIENT_PLAYER"->"bank_insufficient_player_funds";case "UNDERFLOW","INSUFFICIENT_BANK"->"bank_insufficient_funds";case "CAP","BANK_CAP"->"bank_max_balance_reached";case "WITHDRAW_DENIED","DENIED"->"bank_withdraw_no_permission";case "INVALID_AMOUNT"->"bank_invalid_amount";default->"economy_error";};success(player,"&c"+settings.message(message,result.code())+(result.pending()?" op="+result.opid():""));}refreshTeam(team.id());if(result.success())menus.bank(player);
+        // +k1a1 (K-1): under pxc-ledger the player's leg is asked off the server thread and the result lands on a later tick
+        int teamId=team.id();
+        bank.transferAsync(opid,player.getUUID(),deposit,amount,0,Access.bypass(player,"bank.withdraw"),result->bankDone(player,teamId,deposit,amount,result));
+    }
+    private synchronized void bankDone(ServerPlayer player,int teamId,boolean deposit,double amount,BankService.Result result) {
+        try {
+            if(result.success()){String format=settings.message(deposit?"bank_deposit_success":"bank_withdraw_success",deposit?"&aDeposited <amount>":"&aWithdrew <amount>");player.sendSystemMessage(Texts.template(settings.message("prefix","&7[Team] ")+format,Map.of("amount",Texts.money(BankService.normalize(amount,false)),"balance",Texts.money(store.team(teamId).orElseThrow().balance())),Map.of()));}
+            else if(result.code().equals("LEDGER_PENDING"))success(player,"&e"+settings.message("bank_pending","Your bank transfer is being confirmed; it finishes automatically.")+" op="+result.opid());
+            else{String message=switch(result.code()){case "NO_FUNDS","PLAYER_FUNDS","INSUFFICIENT_PLAYER"->"bank_insufficient_player_funds";case "UNDERFLOW","INSUFFICIENT_BANK"->"bank_insufficient_funds";case "CAP","BANK_CAP"->"bank_max_balance_reached";case "WITHDRAW_DENIED","DENIED"->"bank_withdraw_no_permission";case "INVALID_AMOUNT"->"bank_invalid_amount";default->"economy_error";};success(player,"&c"+settings.message(message,result.code())+(result.pending()?" op="+result.opid():""));}
+            refreshTeam(teamId);if(result.success()&&!player.hasDisconnected())menus.bank(player);
+        }catch(Exception e){refuse(player,e);}
+    }
+    /** A bank op that waited for the ledger (LEDGER_PENDING) has ended: tell its player if online here, refresh the team. */
+    private synchronized void bankRetried(UUID who,BankService.Result result) {
+        try {
+            if(result.pending())return;
+            ServerPlayer player=server.getPlayerList().getPlayer(who);
+            store.teamOf(who).ifPresent(t->{try{refreshTeam(t.id());}catch(Exception ignored){}});
+            if(player!=null)success(player,(result.success()?"&a":"&e")+settings.message("bank_pending_settled","Your pending bank transfer finished: ")+result.code()+" op="+result.opid());
+        }catch(Exception e){TeamsMod.LOG.warn("[pxc-teams] bank retry notice failed: {}",e.toString());}
     }
     public synchronized void upgrade(ServerPlayer player)throws Exception {
         check(player,"upgrade");owner(player);Team team=requireTeam(player);if(!settings.bool("team_upgrades.enabled",true))throw new Refusal("UPGRADES_DISABLED");
@@ -381,6 +401,7 @@ public final class TeamsCore implements AutoCloseable {
             if(ticks>=warm.at()){iterator.remove();try{check(player,warm.kind());if(warm.kind().equals("home"))flag(player,"can_use_home","home");player.teleportTo(warm.target(),warm.x(),warm.y(),warm.z(),warm.yaw(),warm.pitch());cooldowns.put(warm.kind()+":"+player.getUUID(),now+settings.integer(warm.kind().equals("home")?"team_home.cooldown_seconds":"team_warps.cooldown_seconds",5)*1000L);say(player,warm.kind().equals("home")?"TELEPORTED_HOME":"TELEPORTED_WARP",Map.of("warp",warm.name()),"&a");}catch(Exception e){refuse(player,e);}}
         }
         chests.tick();
+        if(ticks%20==0)bank.tickRetries();
         if(x4chat!=null){if(ticks%20==0)x4chat.poll(store::members,TeamsCore::authenticated,p->spies.contains(p.getUUID())&&Access.node(p,"justteams.chatspy",false));if(ticks%6000==0)x4chat.prune();}
         if(ticks%Math.max(1,settings.integer("settings.glow.check_interval",20))==0)glowTick();
         if(ticks%200==0)snapshots.refreshAll();

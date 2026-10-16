@@ -128,6 +128,44 @@ final class LedgerReceipt {
         throw new IllegalStateException("ledger adjust outcome unknown for " + key + " (last " + last + (uncertain ? ", an attempt was UNSETTLED" : "") + ")");
     }
 
+    /**
+     * K-1 (+k1a1): the keyed move on a pxc-ledger thread ({@code LedgerReceipts.adjustAsync}, 0.3.8+); a withdraw is
+     * floored at zero. On an older ledger: the plain {@code adjust} on JustTeams' own thread (one attempt, off the tick).
+     * The future may complete on any thread. The pack's money-ledger reason thread-local cannot follow the move onto the
+     * ledger's thread: the pxl_ledger row still carries {@code key} as its attribution.
+     */
+    static java.util.concurrent.CompletableFuture<String> adjustAsync(UUID player, double delta, String key, long deadlineMs) {
+        String currency;
+        try { currency = primaryKey(); }
+        catch (Exception | LinkageError e) { return java.util.concurrent.CompletableFuture.completedFuture("EXCEPTION " + e.getClass().getSimpleName()); }
+        BigDecimal d = BigDecimal.valueOf(delta);
+        BigDecimal floor = delta < 0 ? BigDecimal.ZERO : null;
+        try {
+            Object f = call("adjustAsync", new Class<?>[]{UUID.class, String.class, BigDecimal.class, BigDecimal.class, String.class, String.class, long.class},
+                    player, currency, d, floor, key, key, deadlineMs);
+            @SuppressWarnings("unchecked")
+            java.util.concurrent.CompletableFuture<String> out = (java.util.concurrent.CompletableFuture<String>) f;
+            return out;
+        } catch (NoSuchMethodException e) {
+            return java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                try {
+                    return String.valueOf(call("adjust", new Class<?>[]{UUID.class, String.class, BigDecimal.class, BigDecimal.class, String.class, String.class},
+                            player, currency, d, floor, key, key));
+                } catch (Exception | LinkageError x) {
+                    return "EXCEPTION " + x.getClass().getSimpleName();
+                }
+            }, FALLBACK);
+        } catch (Exception | LinkageError e) {
+            return java.util.concurrent.CompletableFuture.completedFuture("EXCEPTION " + e.getClass().getSimpleName());
+        }
+    }
+
+    private static final java.util.concurrent.ExecutorService FALLBACK = java.util.concurrent.Executors.newFixedThreadPool(2, r -> {
+        Thread t = new Thread(r, "pxc-teams-ledger");
+        t.setDaemon(true);
+        return t;
+    });
+
     @SuppressWarnings("unchecked")
     private static ThreadLocal<String> packReason() {
         try {
