@@ -52,11 +52,12 @@ final class Messages {
         // a player must not learn the network is split.
         Map.entry("CHEST_IN_USE","enderchest_locked"));
 
-    /** Codes this port added (X4) that no donor messages.yml has: shown in Thai unless messages.yml defines the code. */
+    /** Codes this port added (X4) that no donor messages.yml has: shown in Thai unless messages.yml defines the code.
+     * X4 neutral text (Kraus 10-17): never name a server; {@code <server>} is still passed but not shown. */
     private static final Map<String,String> FALLBACK=Map.of(
-        "REMOTE_TRAVEL","&eกำลังพาไปเซิร์ฟ <server>...",
-        "REMOTE_TRAVEL_REFUSED","&cไปเซิร์ฟ <server> ไม่ได้ตอนนี้: <reason>",
-        "REMOTE_WARP_LOCKED","&cวาร์ป <warp> อยู่อีกเซิร์ฟและตั้งรหัสไว้ — ใช้ได้เฉพาะในเซิร์ฟนั้น");
+        "REMOTE_TRAVEL","&eกำลังพาไป...",
+        "REMOTE_TRAVEL_REFUSED","&cไปที่นั่นตอนนี้ไม่ได้: <reason>",
+        "REMOTE_WARP_LOCKED","&cวาร์ป <warp> ตั้งรหัสไว้ — ใช้ได้เฉพาะเมื่ออยู่ใกล้วาร์ปนั้น");
 
     static String fallback(String code){return FALLBACK.get(code);}
 

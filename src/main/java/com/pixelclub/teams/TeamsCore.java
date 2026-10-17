@@ -379,7 +379,7 @@ public final class TeamsCore implements AutoCloseable {
     private void remoteGo(ServerPlayer player,String kind,String dest,String after)throws Exception{
         check(player,kind);if(kind.equals("home"))flag(player,"can_use_home","home");
         String why=XferBridge.go(player,dest,after);
-        if(why!=null)throw new Refusal("REMOTE_TRAVEL_REFUSED",Map.of("server",dest,"reason",why));
+        if(why!=null)throw new Refusal("REMOTE_TRAVEL_REFUSED",Map.of("server",dest,"reason",XferReason.thai(why)));
         TeamsMod.LOG.info("[pxc-teams] X4 {} -> {} for {} (then '{}')",kind,dest,player.getGameProfile().getName(),after);
         say(player,"REMOTE_TRAVEL",Map.of("server",dest),"&e");
     }
