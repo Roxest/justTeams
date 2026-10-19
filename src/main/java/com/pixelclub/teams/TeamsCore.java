@@ -260,7 +260,7 @@ public final class TeamsCore implements AutoCloseable {
     private synchronized void bankDone(ServerPlayer player,int teamId,boolean deposit,double amount,BankService.Result result) {
         try {
             if(result.success()){String format=settings.message(deposit?"bank_deposit_success":"bank_withdraw_success",deposit?"&aDeposited <amount>":"&aWithdrew <amount>");player.sendSystemMessage(Texts.template(settings.message("prefix","&7[Team] ")+format,Map.of("amount",Texts.money(BankService.normalize(amount,false)),"balance",Texts.money(store.team(teamId).orElseThrow().balance())),Map.of()));}
-            else if(result.code().equals("LEDGER_PENDING"))success(player,"&e"+settings.message("bank_pending","Your bank transfer is being confirmed; it finishes automatically.")+" op="+result.opid());
+            else if(result.code().equals("LEDGER_PENDING"))success(player,"&e"+settings.message("bank_pending","กำลังยืนยันการโอนเงินธนาคารทีม ระบบจะทำให้เสร็จเอง ไม่ต้องกดซ้ำ")+" (op "+result.opid()+")");
             else{String message=switch(result.code()){case "NO_FUNDS","PLAYER_FUNDS","INSUFFICIENT_PLAYER"->"bank_insufficient_player_funds";case "UNDERFLOW","INSUFFICIENT_BANK"->"bank_insufficient_funds";case "CAP","BANK_CAP"->"bank_max_balance_reached";case "WITHDRAW_DENIED","DENIED"->"bank_withdraw_no_permission";case "INVALID_AMOUNT"->"bank_invalid_amount";default->"economy_error";};success(player,"&c"+settings.message(message,result.code())+(result.pending()?" op="+result.opid():""));}
             refreshTeam(teamId);if(result.success()&&!player.hasDisconnected())menus.bank(player);
         }catch(Exception e){refuse(player,e);}
@@ -271,7 +271,7 @@ public final class TeamsCore implements AutoCloseable {
             if(result.pending())return;
             ServerPlayer player=server.getPlayerList().getPlayer(who);
             store.teamOf(who).ifPresent(t->{try{refreshTeam(t.id());}catch(Exception ignored){}});
-            if(player!=null)success(player,(result.success()?"&a":"&e")+settings.message("bank_pending_settled","Your pending bank transfer finished: ")+result.code()+" op="+result.opid());
+            if(player!=null)success(player,(result.success()?"&a"+settings.message("bank_pending_settled","การโอนเงินธนาคารทีมที่รอยืนยันเสร็จแล้ว"):"&e"+settings.message("bank_pending_settled_failed","การโอนเงินธนาคารทีมที่รอยืนยันไม่สำเร็จ แจ้งทีมงานพร้อมเลข op ได้"))+" ("+result.code()+" op "+result.opid()+")");
         }catch(Exception e){TeamsMod.LOG.warn("[pxc-teams] bank retry notice failed: {}",e.toString());}
     }
     public synchronized void upgrade(ServerPlayer player)throws Exception {
