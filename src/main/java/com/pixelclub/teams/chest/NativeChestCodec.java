@@ -66,14 +66,16 @@ public final class NativeChestCodec {
     }
 
     /** Slots AdvancedEnchantments rewrote from its legacy Bukkit form while they were decoded (see {@link #aeCanonicalized}). */
-    public record Report(List<ItemStack> stacks, List<Integer> aeCanonicalized) {}
+    public record Report(List<ItemStack> stacks, List<Integer> aeCanonicalized, List<Integer> aliasRenamed) {
+        public Report(List<ItemStack> stacks, List<Integer> aeCanonicalized) { this(stacks, aeCanonicalized, List.of()); }
+    }
 
     public static List<ItemStack> decode(String json, RegistryAccess registries) {
         return decodeReport(json, registries).stacks();
     }
 
     public static Report decodeReport(String json, RegistryAccess registries) {
-        List<Integer> canonicalized = new ArrayList<>();
+        List<Integer> canonicalized = new ArrayList<>(), renamed = new ArrayList<>();
         JsonElement parsed = parseStrict(json);
         if (!parsed.isJsonObject()) throw invalid("inventory must be an object");
         JsonObject body = parsed.getAsJsonObject();
@@ -124,6 +126,12 @@ public final class NativeChestCodec {
                 decoded.add(stack);
                 continue;
             }
+            if (!encoded.equals(roundtrip) && aliasRenamed(record, roundtrip.getAsJsonObject(), jsonCheck, stack,
+                    id -> canonicalItemId(id, ops))) {
+                renamed.add(slot);
+                decoded.add(stack);
+                continue;
+            }
             if (!encoded.equals(roundtrip)) {
                 JsonObject beforeComponents = record.getAsJsonObject("item").getAsJsonObject("components");
                 JsonObject afterComponents = roundtrip.getAsJsonObject().getAsJsonObject("item").getAsJsonObject("components");
@@ -138,7 +146,87 @@ public final class NativeChestCodec {
             }
             decoded.add(stack);
         }
-        return new Report(decoded, List.copyOf(canonicalized));
+        return new Report(decoded, List.copyOf(canonicalized), List.copyOf(renamed));
+    }
+
+    /**
+     * Cobblemon 1.8.x (2026-10-26): zamega 1.8.2 registers item-registry aliases (zamega:emboarite ->
+     * mega_showdown:emboarite, zamega:raichunitey -> mega_showdown:raichunite_y, ...). A stored item under the old
+     * id decodes to the new item and re-encodes under the new id, so the round trip differs by the id alone.
+     * Accepted only when every difference in the item JSON and the typed NBT is an item id that this server's item
+     * registry resolves to exactly the id the round trip wrote, count is unchanged, and the JSON and typed-NBT
+     * decodes agree on every component. The full component hash may differ: it covers the new item's defaults.
+     */
+    static boolean aliasRenamed(JsonObject record, JsonObject roundtrip, ItemStack fromJson, ItemStack fromNbt,
+                                java.util.function.Function<String, String> canonicalId) {
+        JsonObject stored = record.getAsJsonObject("item"), rebuilt = roundtrip.getAsJsonObject("item");
+        if (rebuilt == null || !Objects.equals(stored.get("count"), rebuilt.get("count"))) return false;
+        if (fromJson.getCount() != fromNbt.getCount() || !ItemStack.isSameItemSameComponents(fromJson, fromNbt)) return false;
+        boolean[] renamed = {false};
+        if (!sameUpToItemIds(stored, rebuilt, canonicalId, renamed, 0)) return false;
+        Tag storedNbt, rebuiltNbt;
+        try {
+            storedNbt = TagParser.parseTag(record.get("nbt").getAsString());
+            rebuiltNbt = TagParser.parseTag(roundtrip.get("nbt").getAsString());
+        } catch (com.mojang.brigadier.exceptions.CommandSyntaxException | RuntimeException exception) { return false; }
+        boolean[] renamedNbt = {false};
+        if (!sameUpToItemIds(storedNbt, rebuiltNbt, canonicalId, renamedNbt, 0)) return false;
+        return renamed[0] && renamedNbt[0];
+    }
+
+    private static boolean sameUpToItemIds(JsonElement stored, JsonElement rebuilt, java.util.function.Function<String, String> canonicalId,
+                                           boolean[] renamed, int depth) {
+        if (depth > 128) return false;
+        if (stored.isJsonObject() && rebuilt.isJsonObject()) {
+            JsonObject a = stored.getAsJsonObject(), b = rebuilt.getAsJsonObject();
+            if (!a.keySet().equals(b.keySet())) return false;
+            for (String key : a.keySet()) {
+                JsonElement x = a.get(key), y = b.get(key);
+                if (key.equals("id") && x.isJsonPrimitive() && y.isJsonPrimitive() && x.getAsJsonPrimitive().isString()
+                        && y.getAsJsonPrimitive().isString() && !x.equals(y)) {
+                    if (!y.getAsString().equals(canonicalId.apply(x.getAsString()))) return false;
+                    renamed[0] = true;
+                } else if (!sameUpToItemIds(x, y, canonicalId, renamed, depth + 1)) return false;
+            }
+            return true;
+        }
+        if (stored.isJsonArray() && rebuilt.isJsonArray()) {
+            JsonArray a = stored.getAsJsonArray(), b = rebuilt.getAsJsonArray();
+            if (a.size() != b.size()) return false;
+            for (int index = 0; index < a.size(); index++) if (!sameUpToItemIds(a.get(index), b.get(index), canonicalId, renamed, depth + 1)) return false;
+            return true;
+        }
+        return stored.equals(rebuilt);
+    }
+
+    private static boolean sameUpToItemIds(Tag stored, Tag rebuilt, java.util.function.Function<String, String> canonicalId,
+                                           boolean[] renamed, int depth) {
+        if (depth > 128) return false;
+        if (stored instanceof CompoundTag a && rebuilt instanceof CompoundTag b) {
+            if (!a.getAllKeys().equals(b.getAllKeys())) return false;
+            for (String key : a.getAllKeys()) {
+                Tag x = a.get(key), y = b.get(key);
+                if (key.equals("id") && x instanceof net.minecraft.nbt.StringTag && y instanceof net.minecraft.nbt.StringTag && !x.equals(y)) {
+                    if (!y.getAsString().equals(canonicalId.apply(x.getAsString()))) return false;
+                    renamed[0] = true;
+                } else if (!sameUpToItemIds(x, y, canonicalId, renamed, depth + 1)) return false;
+            }
+            return true;
+        }
+        if (stored instanceof ListTag a && rebuilt instanceof ListTag b) {
+            if (a.size() != b.size()) return false;
+            for (int index = 0; index < a.size(); index++) if (!sameUpToItemIds(a.get(index), b.get(index), canonicalId, renamed, depth + 1)) return false;
+            return true;
+        }
+        return stored.equals(rebuilt);
+    }
+
+    /** The registry key the item codec writes for an id it reads, aliases included; null when the id names no item. */
+    static String canonicalItemId(String id, RegistryOps<JsonElement> ops) {
+        DataResult<net.minecraft.core.Holder<net.minecraft.world.item.Item>> item =
+                ItemStack.ITEM_NON_AIR_CODEC.parse(ops, new JsonPrimitive(id));
+        return item.result().filter(holder -> holder.value() != net.minecraft.world.item.Items.AIR)
+                .flatMap(holder -> holder.unwrapKey()).map(key -> key.location().toString()).orElse(null);
     }
 
     /**

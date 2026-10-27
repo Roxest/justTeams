@@ -199,13 +199,36 @@ public final class ChestConverterMod implements ModInitializer {
                 JsonObject row = element.getAsJsonObject();
                 int team = teamId(row, teams);
                 String json = text(row, "inventory_json");
-                List<ItemStack> stacks = NativeChestCodec.decode(json, source.getServer().registryAccess());
+                var report = NativeChestCodec.decodeReport(json, source.getServer().registryAccess());
+                List<ItemStack> stacks = report.stacks();
                 String roundtrip = NativeChestCodec.encode(stacks, source.getServer().registryAccess());
-                if (!sameInventory(json, roundtrip)) {
+                // Registry-alias slots (zamega -> mega_showdown) re-encode under the new id by design; the saved form
+                // must then decode back to exactly the same persistent items with no further rename.
+                boolean renamed = !report.aliasRenamed().isEmpty();
+                if (renamed) {
+                    var again = NativeChestCodec.decodeReport(roundtrip, source.getServer().registryAccess());
+                    if (!again.aliasRenamed().isEmpty() || !again.aeCanonicalized().isEmpty() || again.stacks().size() != stacks.size())
+                        throw new IllegalArgumentException("Alias re-encode not stable for team " + team);
+                    for (int slot = 0; slot < stacks.size(); slot++)
+                        if (!NativeChestCodec.samePersistentItem(stacks.get(slot), again.stacks().get(slot), source.getServer().registryAccess()))
+                            throw new IllegalArgumentException("Alias re-encode changes slot " + slot + " for team " + team);
+                } else if (!sameInventory(json, roundtrip)) {
                     throw new IllegalArgumentException("Native semantic mismatch for team " + team);
                 }
                 JsonObject proof = new JsonObject();
                 proof.addProperty("team_id", team);
+                JsonArray aliasSlots = new JsonArray();
+                for (int slot : report.aliasRenamed()) {
+                    JsonObject entry = new JsonObject();
+                    entry.addProperty("slot", slot);
+                    entry.addProperty("from", NativeChestCodec.parseStrict(json).getAsJsonObject().getAsJsonArray("slots").get(slot)
+                            .getAsJsonObject().getAsJsonObject("item").get("id").getAsString());
+                    entry.addProperty("to", BuiltInRegistries.ITEM.getKey(stacks.get(slot).getItem()).toString());
+                    entry.addProperty("count", stacks.get(slot).getCount());
+                    aliasSlots.add(entry);
+                }
+                proof.add("alias_renamed", aliasSlots);
+                proof.addProperty("roundtrip_inventory_json", roundtrip);
                 proof.add("slots", manifest(roundtrip));
                 manifests.add(proof);
             }

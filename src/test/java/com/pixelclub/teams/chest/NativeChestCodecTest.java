@@ -221,6 +221,60 @@ class NativeChestCodecTest {
         assertFalse(NativeChestCodec.aeCanonicalized(stored, rebuilt, book(legacyAe(), 1), canonical));
     }
 
+    /** zamega 1.8.2 aliases: a record stored as zamega:emboarite re-encodes as mega_showdown:emboarite. */
+    @Test
+    void acceptsOnlyARoundTripThatDiffersByARegistryAliasedItemId() {
+        ItemStack paper = new ItemStack(Items.PAPER, 3);
+        paper.set(DataComponents.CUSTOM_NAME, Component.literal("Emboarite"));
+        JsonObject rebuilt = slotRecord(paper);
+        JsonObject stored = renamed(rebuilt, "minecraft:paper", "test:old_paper");
+        java.util.function.Function<String, String> alias = id -> id.equals("test:old_paper") ? "minecraft:paper" : null;
+        assertTrue(NativeChestCodec.aliasRenamed(stored, rebuilt, paper.copy(), paper, alias));
+        // identical records are not a rename
+        assertFalse(NativeChestCodec.aliasRenamed(rebuilt, rebuilt, paper.copy(), paper, alias));
+        // the old id must resolve to exactly the id the round trip wrote
+        assertFalse(NativeChestCodec.aliasRenamed(stored, rebuilt, paper.copy(), paper, id -> "minecraft:book"));
+        assertFalse(NativeChestCodec.aliasRenamed(stored, rebuilt, paper.copy(), paper, id -> null));
+        // any other change stays a loss: count, a component, or the decodes disagreeing
+        ItemStack four = paper.copyWithCount(4);
+        assertFalse(NativeChestCodec.aliasRenamed(stored, slotRecord(four), four.copy(), four, alias));
+        ItemStack other = paper.copy();
+        other.set(DataComponents.CUSTOM_NAME, Component.literal("Other"));
+        assertFalse(NativeChestCodec.aliasRenamed(stored, slotRecord(other), other.copy(), other, alias));
+        assertFalse(NativeChestCodec.aliasRenamed(stored, rebuilt, other, paper, alias));
+        // only the item JSON renamed, typed NBT still differs elsewhere
+        JsonObject badNbt = stored.deepCopy();
+        badNbt.addProperty("nbt", badNbt.get("nbt").getAsString().replace("Emboarite", "Lost"));
+        assertFalse(NativeChestCodec.aliasRenamed(badNbt, rebuilt, paper.copy(), paper, alias));
+    }
+
+    @Test
+    void aliasRenameInsideAShulkerIsAccepted() {
+        ItemStack inner = new ItemStack(Items.PAPER, 2);
+        ItemStack shulker = new ItemStack(Items.SHULKER_BOX);
+        NonNullList<ItemStack> contents = NonNullList.withSize(27, ItemStack.EMPTY);
+        contents.set(4, inner);
+        shulker.set(DataComponents.CONTAINER, ItemContainerContents.fromItems(contents));
+        JsonObject rebuilt = slotRecord(shulker);
+        JsonObject stored = renamed(rebuilt, "minecraft:paper", "test:old_paper");
+        assertNotEquals(rebuilt, stored);
+        assertTrue(NativeChestCodec.aliasRenamed(stored, rebuilt, shulker.copy(), shulker,
+                id -> id.equals("test:old_paper") ? "minecraft:paper" : null));
+    }
+
+    @Test
+    void canonicalItemIdResolvesKnownIdsOnly() {
+        var ops = net.minecraft.resources.RegistryOps.create(com.mojang.serialization.JsonOps.INSTANCE, registries);
+        assertEquals("minecraft:paper", NativeChestCodec.canonicalItemId("minecraft:paper", ops));
+        assertNull(NativeChestCodec.canonicalItemId("zamega:not_an_item", ops));
+        assertNull(NativeChestCodec.canonicalItemId("minecraft:air", ops));
+    }
+
+    private static JsonObject renamed(JsonObject record, String from, String to) {
+        String text = record.toString().replace("\\\"" + from + "\\\"", "\\\"" + to + "\\\"").replace("\"" + from + "\"", "\"" + to + "\"");
+        return com.google.gson.JsonParser.parseString(text).getAsJsonObject();
+    }
+
     private static void sign(JsonObject document) {
         document.remove("sha256");
         document.addProperty("sha256", NativeChestCodec.semanticSha256(document));

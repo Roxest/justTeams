@@ -9,6 +9,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -566,6 +567,14 @@ public class TeamStoreTest {
         TeamStore.Chest chest = store.chest(team.id()).orElseThrow();
         assertEquals(2, chest.generation()); assertEquals("[1]", chest.inventoryJson());
         assertEquals("immutable-donor-blob", store.rows("team_enderchest", "team_id", team.id()).getFirst().get("inventory_data"));
+    }
+
+    @Test void chestTeamIdsListsDonorAndPostConversionChests() throws Exception {
+        assertEquals(List.of(), store.chestTeamIds());
+        // a chest saved by a team created after the conversion has no donor row and must still be listed
+        assertTrue(store.saveChest(team.id(), 1, "[]", null, 0));
+        assertTrue(store.rows("team_enderchest", "team_id", team.id()).isEmpty());
+        assertEquals(List.of(team.id()), store.chestTeamIds());
     }
 
     @Test void chestImportPreservesUtf8OriginalsAndReplaysOnlyUnchangedGenerationOneRows() throws Exception {

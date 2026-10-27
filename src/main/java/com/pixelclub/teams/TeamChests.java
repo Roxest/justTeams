@@ -44,13 +44,23 @@ public final class TeamChests {
     public void validateConvertedDonor()throws Exception {
         restoreQuarantine();
         undecodable.clear();
+        Set<Integer> checked=new HashSet<>();
         for(Map<String,Object> row:core.store.rows("team_enderchest",null,null)) {
             String original=Objects.toString(row.get("inventory_data"),"");if(original.isEmpty())continue;
             int id=((Number)row.get("team_id")).intValue();Chest chest=core.store.chest(id).orElseThrow(()->new TeamsCore.Refusal("CHEST_CONVERSION_MISSING"));
             if(!sha(original).equals(chest.originalSha256()))throw new TeamsCore.Refusal("CHEST_DONOR_HASH_CHANGED");
-            try{var report=NativeChestCodec.decodeReport(chest.inventoryJson(),core.server.registryAccess());if(!report.aeCanonicalized().isEmpty())TeamsMod.LOG.info("[pxc-teams] team {} chest: legacy AE item(s) in slot(s) {} canonicalized by AdvancedEnchantments, saved in that form on next close",id,report.aeCanonicalized());}
-            catch(RuntimeException e){undecodable.add(id);TeamsMod.LOG.error("[pxc-teams] team {} chest does not decode here - chest locked, team usable: {}",id,e.toString());}
+            checkDecodes(id,chest.inventoryJson());checked.add(id);
         }
+        // Chests created after the conversion have no donor row; a stored item this server can no longer decode
+        // (e.g. a registry change) must lock that chest at boot too, not fail when a member opens it.
+        for(int id:core.store.chestTeamIds()){
+            if(!checked.add(id))continue;
+            Chest chest=core.store.chest(id).orElse(null);if(chest!=null)checkDecodes(id,chest.inventoryJson());
+        }
+    }
+    private void checkDecodes(int id,String json){
+        try{var report=NativeChestCodec.decodeReport(json,core.server.registryAccess());if(!report.aeCanonicalized().isEmpty())TeamsMod.LOG.info("[pxc-teams] team {} chest: legacy AE item(s) in slot(s) {} canonicalized by AdvancedEnchantments, saved in that form on next close",id,report.aeCanonicalized());if(!report.aliasRenamed().isEmpty())TeamsMod.LOG.info("[pxc-teams] team {} chest: item(s) in slot(s) {} stored under a registry alias (e.g. zamega -> mega_showdown) decode as the renamed item, saved under the new id on next close",id,report.aliasRenamed());}
+        catch(RuntimeException e){undecodable.add(id);TeamsMod.LOG.error("[pxc-teams] team {} chest does not decode here - chest locked, team usable: {}",id,e.toString());}
     }
     public void open(ServerPlayer player)throws Exception {
         core.check(player,"enderchest");core.flag(player,"can_use_enderchest","enderchest");Team team=core.requireTeam(player);

@@ -707,6 +707,14 @@ public final class TeamStore {
     public Optional<Chest> chest(int teamId) throws SQLException {
         try (Connection connection = factory.open()) { return chest(connection, teamId, false); }
     }
+    /** Every team that has a native chest row, donor-converted or created later. */
+    public List<Integer> chestTeamIds() throws SQLException {
+        try (Connection connection = factory.open()) {
+            List<Integer> ids = new ArrayList<>();
+            for (Map<String, Object> row : query(connection, "SELECT team_id FROM " + CHESTS + " ORDER BY team_id")) ids.add(RowData.integer(row.get("team_id")));
+            return ids;
+        }
+    }
     public synchronized boolean saveChest(int teamId, int formatVersion, String inventoryJson, String originalSha256, long expectedGeneration) throws SQLException {
         if (formatVersion < 1 || inventoryJson == null || expectedGeneration < 0 || originalSha256 != null && !originalSha256.matches("[a-fA-F0-9]{64}")) throw new IllegalArgumentException("Invalid chest data");
         return transaction(connection -> {
