@@ -1,5 +1,7 @@
 package com.pixelclub.teams;
 
+import com.pixelclub.teams.hook.AchievementHook;
+
 import com.pixelclub.teams.store.*;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -111,7 +113,8 @@ public final class TeamMenus {
         back(menu,40);menu.open();
     }
     public void top(ServerPlayer player,String category)throws Exception {
-        core.check(player,"top");if(category==null){Screen menu=new Screen(player,"leaderboard-category-gui",27,"Top teams");menu.button("top-kills",11,"DIAMOND_SWORD","&aKills",p->top(p,"kills"));menu.button("top-balance",13,"GOLD_INGOT","&aBalance",p->top(p,"balance"));menu.button("top-members",15,"PLAYER_HEAD","&aMembers",p->top(p,"members"));back(menu,22);menu.open();return;}
+        core.check(player,"top");
+        AchievementHook.increment(player.getUUID(), "social_climbing_the_ranks", 1);if(category==null){Screen menu=new Screen(player,"leaderboard-category-gui",27,"Top teams");menu.button("top-kills",11,"DIAMOND_SWORD","&aKills",p->top(p,"kills"));menu.button("top-balance",13,"GOLD_INGOT","&aBalance",p->top(p,"balance"));menu.button("top-members",15,"PLAYER_HEAD","&aMembers",p->top(p,"members"));back(menu,22);menu.open();return;}
         Screen menu=new Screen(player,"leaderboard-view-gui",54,"Top: "+category);int slot=10;for(Team team:core.store.top(category,30)){if(slot>=45)break;menu.direct(slot++,"PLAYER_HEAD",team.name()+" ["+team.tag()+"]",List.of("Bank "+Texts.money(team.balance()),"Members "+core.store.members(team.id()).size()),null);}back(menu,49);menu.open();
     }
     public void requests(ServerPlayer player)throws Exception {core.check(player,"requests");core.elevated(player);Team team=core.requireTeam(player);Screen menu=new Screen(player,"join-requests-gui",54,"Join requests");int slot=10;for(var row:core.store.rows("join_requests","team_id",team.id())){if(slot>=45)break;UUID who=UUID.fromString(row.get("player_uuid").toString());int actual=slot++;menu.direct(actual,"PLAYER_HEAD",core.playerName(who),List.of("Left: accept","Right: deny"),p->{core.acceptRequest(p,who);requests(p);});menu.inventory.getItem(actual).set(DataComponents.PROFILE,TeamHeads.profile(core.server,who,core.playerName(who)));menu.right(actual,p->{core.check(p,"requests");core.elevated(p);core.ensureChanged(core.store.deleteRows("join_requests",Map.of("team_id",core.requireTeam(p).id(),"player_uuid",who))>0);requests(p);});}back(menu,49);menu.open();}

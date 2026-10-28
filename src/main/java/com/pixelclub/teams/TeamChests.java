@@ -1,5 +1,7 @@
 package com.pixelclub.teams;
 
+import com.pixelclub.teams.hook.AchievementHook;
+
 import com.google.gson.*;
 import com.pixelclub.teams.chest.*;
 import com.pixelclub.teams.mixin.PlayerSaveAccess;
@@ -65,6 +67,7 @@ public final class TeamChests {
     public void open(ServerPlayer player)throws Exception {
         core.check(player,"enderchest");core.flag(player,"can_use_enderchest","enderchest");Team team=core.requireTeam(player);
         openFor(player,team,false);
+        AchievementHook.increment(player.getUUID(), "social_team_enderchest", 1);
     }
     public void openAdministrative(ServerPlayer player,Team team)throws Exception{
         adminAccess(player);openFor(player,team,true);
